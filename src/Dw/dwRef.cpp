@@ -182,16 +182,26 @@ void dwRefGraph::Update(float dt)
 // Strength: 0 -> flat, 1.0 -> 10, v <= 200 -> H / (int)v + 100, else H / ((int)v / 100)
 // (10 when that rounds to nothing). (int)v == 0 would divide by zero in the original;
 // treated as 1 here.
-static int dwRefGraph_BarDrop(int mode, float v, int H)
+// How far below the chart top a bar starts (binary 0x416356..0x416433):
+// 0 → no drop (full height), mode 0 (density): H / (int)v; mode 1 (strength):
+// v <= 200 → H / (int)v + 100, else H / ((int)v / 100), or 10 when that is 0.
+// bOneIsTen: the per-point bars (not the current-topic bar) special-case 1.0 → 10.
+static int dwRefGraph_BarDrop(int mode, float v, int H, int bOneIsTen)
 {
     if (v == 0.0f) return 0;
-    if (v == 1.0f) return 10;
-    int iv = (int)v;
     if (mode == 0)
+    {
+        if (v == 1.0f) return 10;
+        int iv = (int)v & 0xffff;
         return H / (iv ? iv : 1);
+    }
+    if (bOneIsTen && v == 1.0f) return 10;
     if (v <= 200.0f)
+    {
+        int iv = (int)v & 0xffff;
         return H / (iv ? iv : 1) + 100;
-    int d = iv / 100;
+    }
+    int d = ((int)v / 100) & 0xffff;
     int r = H / (d ? d : 1);
     return (int16_t)r != 0 ? r : 10;
 }
@@ -212,14 +222,15 @@ void dwRefGraph::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
     bar.right = (int16_t)(this->left + 30);
     bar.bottom = (int16_t)(this->bottom - 120);
     int H = (int16_t)(bar.bottom - bar.top);
-    bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? this->config1 : this->config2, H));
+    bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? this->config1 : this->config2, H, 0));
     dwImageDraw_FillRect(pDestBits, &bar, 2, &clip);
 
-    // One 15 px bar per data point, every 21 px from left+6, colors 0xe5 / 0xc1 / 0x20.
+    // One 15 px bar per data point, every 21 px starting at left+36 (the binary
+    // seeds the walking rect's left with the current-topic bar's right edge, left+30,
+    // then adds 6 per step), colors 0xe5 / 0xc1 / 0x20 — in step with LayoutLabels.
     static const int aColor[3] = { 0xe5, 0xc1, 0x20 };
     char state = 0;
-    bar.left = this->left;
-    bar.right = (int16_t)(this->left + 30);
+    bar.left = (int16_t)(this->left + 30);
     dwListNode* pSent = this->pDataPoints.pSentinel;
     for (dwListNode* pNode = pSent->pNext; pNode != pSent; pNode = pNode->pNext)
     {
@@ -229,7 +240,7 @@ void dwRefGraph::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         bar.top = this->top;
         bar.bottom = (int16_t)(this->bottom - 120);
         H = (int16_t)(bar.bottom - bar.top);
-        bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? pPt->density : pPt->strength, H));
+        bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? pPt->density : pPt->strength, H, 1));
         dwImageDraw_FillRect(pDestBits, &bar, aColor[(int)state], &clip);
         state = (char)((state + 1) % 3);
         bar.left = bar.right;
