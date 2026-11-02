@@ -1038,15 +1038,19 @@ void dwGuiInGame::EndMission()
         bAllObjectivesDone = true;
         for (dwListNode* pNode = pSentinel->pNext; pNode != pSentinel; pNode = pNode->pNext)
         {
-            uint8_t* pObj = (uint8_t*)pNode->pData;
-            pObj[0x15] = 0;
-            if (pObj[0xc] == rank)
+            // Fixed: was read through the binary's 32-bit byte offsets (+0xc code, +0x10
+            // param, +0x15 flag). dwString is 16 bytes on 64-bit (pointer at +8), so those
+            // offsets landed inside the label's buffer pointer: no objective ever matched
+            // the rank, none was ever ticked, and every debrief came up Unranked.
+            dwMissionObjective* pObj = (dwMissionObjective*)pNode->pData;
+            pObj->bFlag = 0;
+            if (pObj->code == rank)
             {
-                flex_t owned = sithInventory_GetInventory(pThing, *(int*)(pObj + 0x10));
+                flex_t owned = sithInventory_GetInventory(pThing, (int)pObj->param);
                 if (owned == 0.0f)
                     bAllObjectivesDone = false;
                 else
-                    pObj[0x15] = 1;
+                    pObj->bFlag = 1;
             }
         }
     }

@@ -1411,6 +1411,32 @@ void Window_SdlUpdate()
             int mouseX = 0, mouseY = 0;
             if (pMouse && displayWindow && sscanf(pMouse, "%d,%d", &mouseX, &mouseY) == 2)
                 SDL_WarpMouseInWindow(displayWindow, (float)mouseX, (float)mouseY);
+            // OPENJKDF2_AUTOSHOT_CLICK=x,y@ms: one synthesized left click (warp, press, release)
+            // at window pixel x,y once that many ms have passed. Lets a headless run exercise
+            // a button before the screenshot.
+            const char* pClick = getenv("OPENJKDF2_AUTOSHOT_CLICK");
+            static int autoShot_bClicked = 0;
+            int clickX = 0, clickY = 0, clickMs = 0;
+            if (pClick && !autoShot_bClicked && displayWindow
+                && sscanf(pClick, "%d,%d@%d", &clickX, &clickY, &clickMs) == 3
+                && nowMs - autoShot_startMs > (uint32_t)clickMs)
+            {
+                autoShot_bClicked = 1;
+                SDL_WarpMouseInWindow(displayWindow, (float)clickX, (float)clickY);
+                SDL_Event ev;
+                memset(&ev, 0, sizeof(ev));
+                ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                ev.button.windowID = SDL_GetWindowID(displayWindow);
+                ev.button.button = SDL_BUTTON_LEFT;
+                ev.button.down = true;
+                ev.button.clicks = 1;
+                ev.button.x = (float)clickX;
+                ev.button.y = (float)clickY;
+                SDL_PushEvent(&ev);
+                ev.type = SDL_EVENT_MOUSE_BUTTON_UP;
+                ev.button.down = false;
+                SDL_PushEvent(&ev);
+            }
             if (nowMs - autoShot_startMs > (uint32_t)atoi(pShotMs))
             {
                 const char* pShotPath = getenv("OPENJKDF2_AUTOSHOT_PATH");
