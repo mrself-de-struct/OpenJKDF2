@@ -141,6 +141,13 @@ struct dwGuiReference : dwGuiScreen
     // first three as params (pGroupDefault/pGroupHeader/pGroupDynamic) plus
     // this->pContentGroup + this->pChildF8 — the last two params are dead but
     // kept to match the call sites. Returns 0 only on the STILL_FRAME early-out.
+    // Added: the DYNAMIC_CONTROL builder (binary 0x42cd20, unnamed in the symbol map):
+    // mode 0 ANIM_VIEWER -> dwGuiAnimView, 1 BACKDROP -> dwWcEntryPanel, 2 STILL_FRAME ->
+    // dwGuiPicture, 3 BILEVEL -> dwWcMaterials. Reads `count` item lines (padded to the
+    // mode's fixed line count) then `numText` caption lines from pConf, all localized
+    // through the topic's string table. Returns the built control or NULL.
+    dwWidget* BuildAnimViewer(int mode, dwRect* pRect, int count, char* pArt, dwConfFile* pConf,
+                              int numText, int extra);
     char BuildDynamicControls(const char* pConfName, dwWidgetGroup* pGroupDefault,
                               dwWidgetGroup* pGroupHeader, dwWidgetGroup* pGroupDynamic,
                               dwWidgetGroup* pGroupUnused4, dwWidgetGroup* pGroupUnused5);

@@ -517,7 +517,7 @@ void dwGuiAnimView::AddItem(const char* pAnimFile, int code, uint8_t flag,
 // as ints to match the original decompiled signature (TODO(dw-decomp):
 // retype to (uint8_t color, char* pFontName) when the caller,
 // dwGuiReference_BuildAnimViewer, lands).
-void dwGuiAnimView::AddHypTextChild(char* pText, dwPoint pos, dwPoint size, int param_4, int param_5)
+void dwGuiAnimView::AddHypTextChild(char* pText, dwPoint pos, dwPoint size, uint8_t color, char* pFontName)
 {
     dwGuiHypText* pChild;
     dwRect rect;
@@ -530,7 +530,7 @@ void dwGuiAnimView::AddHypTextChild(char* pText, dwPoint pos, dwPoint size, int 
 
     // Note: the binary null-checked the 0x48 allocation and still inserted
     // the NULL payload on failure; unreachable with new.
-    pChild = new dwGuiHypText(&rect, NULL, (char*)(uintptr_t)param_5, (uint8_t)param_4, (char*)"BLN");
+    pChild = new dwGuiHypText(&rect, NULL, pFontName, color, (char*)"BLN");
     pChild->text.Free();     // drop any current text so SetText replaces (it appends)
     pChild->SetText(pText);  // virtual +0x48
     this->children.InsertAfter(this->children.pSentinel, pChild); // push-FRONT

@@ -241,7 +241,9 @@ struct dwGuiAnimView : dwAnimBase, dwWidgetGroup
     // dwGuiAnimView_AddHypTextChild — build a dwGuiHypText child at
     // (pos, size) relative to the group rect and push-front it onto the group
     // children (un-stubbed once the dwGuiHypText unit landed, P4).
-    void AddHypTextChild(char* pText, dwPoint pos, dwPoint size, int param_4, int param_5);
+    // (color, font name — the binary passes the font name pointer as the last arg;
+    // typed as such here so it survives 64-bit.)
+    void AddHypTextChild(char* pText, dwPoint pos, dwPoint size, uint8_t color, char* pFontName);
 
     // dwGuiAnimView_InitFirstFrame — preload the FIRST item's still
     // image, and when it is the ONLY item also open its anim player (so

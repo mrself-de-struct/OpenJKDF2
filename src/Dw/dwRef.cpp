@@ -268,104 +268,102 @@ void dwRefGraph::ParseTopicFile(dwConfFile* pConf)
     dwConfFile_Close(pConf);
 }
 
-// dwRefGraph_LayoutLabels — build the 3-column comparison chart's
-// topic-name labels (Arial10 dwGuiHypText children). The magic pixel constants
-// are the hard-coded column X positions (0x154 track, 0xf3/0x132/0x171 column
-// centers) preserved verbatim from the binary.
+// dwRefGraph_LayoutLabels — the material-name labels (Arial10 dwGuiHypText children).
+// Re-read from the binary: the labels run down a diagonal — each one 21 px right and 20 px
+// down from the last, every third one back up at y=340 — in three cycling colors, with a
+// few hard-coded x positions nudged to line up with the chart art. The rect passed to the
+// hyptext is {x, y, x + len + w, 400}, x starting at rect.left + 36 (verbatim quirks:
+// the name LENGTH is added to the x advance alongside half the pixel width).
 void dwRefGraph::LayoutLabels()
 {
     dwFont* pFont = dwFont_Load((dwFont*)operator new(sizeof(dwFont)), "Arial10");
 
-    int16_t rowLeft = (int16_t)(this->top /*rect top @+6*/ + 0x24); // local_1c
-    // Note: the binary reads (rect.top + 0x24) at [param_1+6]; the widget rect
-    // top drives the first row. Track/label vars below mirror local_14/10/e.
-    int16_t colX = rowLeft; // local_14
-
-    char state = 0; // column cursor: 0/1/2 == first/second/third
-    dwRect labelRect;
-    labelRect.left = 0; labelRect.top = 0; labelRect.right = 0; labelRect.bottom = 0;
+    int16_t x = (int16_t)(this->left + 0x24);   // [esp+0x28]
+    int16_t y = 0x154;                          // [esp+0x2a]
+    int16_t nextX = x, nextY = y;               // [esp+0x20]/[esp+0x22]
+    char state = 0;
 
     dwListNode* pSent = this->pDataPoints.pSentinel;
-    dwListNode* pNode = pSent->pNext;
-    while (pNode != pSent)
+    for (dwListNode* pNode = pSent->pNext; pNode != pSent; pNode = pNode->pNext)
     {
         dwRefGraphPoint* pPt = (dwRefGraphPoint*)pNode->pData;
-        int16_t nameW = (int16_t)dwFont_MeasureString(pFont, pPt->name.pBuffer, (int)pPt->name.length);
-        int16_t pointX = (int16_t)pPt->name.length; // (short)*(undefined4*)piVar11[2]
-
+        int len = (int)pPt->name.length;
+        int16_t w = (int16_t)dwFont_MeasureString(pFont, pPt->name.pBuffer, len);
         uint8_t color;
+
         if (state == 0)
         {
-            if (colX == 0xf3)      { colX = (int16_t)(0xf3 - nameW / 2 - pointX); }
-            else if (colX == 0x132){ colX = (int16_t)(0x134 - nameW / 2); }
-            else if (colX == 0x171){ colX = (int16_t)(0x176 - nameW / 2); }
-            else                   { colX = (int16_t)(colX + (pointX - nameW / 2)); }
-            color = 0x20;
+            if (x == 0xf3)       x = (int16_t)(0xf3 - w / 2 - len);
+            else if (x == 0x132) x = (int16_t)(0x134 - w / 2);
+            else if (x == 0x171) x = (int16_t)(0x176 - w / 2);
+            else                 x = (int16_t)(x + (len - w / 2));
+            color = 0xe5;
         }
         else if (state == 1)
         {
-            if (colX == 0x147)      colX = (int16_t)(pointX - nameW / 2 + 0x149);
-            else if (colX == 0x108) colX = (int16_t)(0x116 - nameW / 2);
-            else                    colX = (int16_t)(colX + (pointX - nameW / 2) - 0xe);
+            if (x == 0x147)      x = (int16_t)(len - w / 2 + 0x149);
+            else if (x == 0x108) x = (int16_t)(0x116 - w / 2);
+            else                 x = (int16_t)(x + (len - w / 2) - 0xe);
             color = 0xc1;
         }
         else
         {
-            colX = (int16_t)(colX + (pointX - nameW / 2));
-            color = 0xe5;
+            x = (int16_t)(x + (len - w / 2));
+            color = 0x20;
         }
 
-        labelRect.left = colX;
-        labelRect.top = rowLeft;
-        labelRect.right = (int16_t)(pointX + nameW + colX);
-        labelRect.bottom = 400;
-
-        dwGuiHypText* pLabel = new dwGuiHypText(&labelRect, NULL, (char*)"Arial10", color, (char*)"DLO");
+        dwRect r;
+        r.left = x; r.top = y; r.right = (int16_t)(len + w + x); r.bottom = 0x190;
+        dwGuiHypText* pLabel = new dwGuiHypText(&r, NULL, (char*)"Arial10", color, (char*)"DLO");
         pLabel->text.Free();
         pLabel->SetText(pPt->name.pBuffer);
         dwRef_Append(&this->children, pLabel);
 
-        // Advance to the next column / row.
-        state = (char)((state + 1) % 3);
-        if (state == 0)
+        if (state == 2)
         {
-            rowLeft = (int16_t)(rowLeft + 0x15);
-            colX = rowLeft;
+            nextX = (int16_t)(nextX + 0x15);
+            nextY = 0x154;
+            state = 0;
         }
-        pNode = pNode->pNext;
+        else
+        {
+            nextX = (int16_t)(nextX + 0x15);
+            nextY = (int16_t)(nextY + 0x14);
+            state++;
+        }
+        // The binary carries the x/y deltas into the working rect: x/y take the next slot.
+        x = nextX;
+        y = nextY;
     }
+    operator delete(pFont); // the handle only; the glyph block belongs to dwFont's cache
 }
 
-// dwRefGraph_LayoutMarkers — the colored arrow markers
-// (ROrange/RGreen/RBlue) at the three column positions.
+// dwRefGraph_LayoutMarkers — the colored arrow markers (ROrange/RGreen/RBlueArrow.RLE
+// dwGuiPicture children), one per data point, stepping 21 px right along the chart's
+// baseline (rect.bottom - 135), the green ones 4 px and the blue ones 14 px higher.
 void dwRefGraph::LayoutMarkers()
 {
-    int16_t x = 0xd0;                                  // local_20
-    int16_t baseY = (int16_t)(this->right - 0x87);     // sStack_22 ((rect.right? +0xc) - 0x87)
-    int16_t y = 0xb2;                                  // local_24
-    (void)baseY;
+    int16_t baseTop = (int16_t)(this->bottom - 0x87);
+    dwRect r;
+    r.left = 0xb2; r.top = baseTop; r.right = 0xd0; r.bottom = (int16_t)(baseTop + 0x64);
     char state = 0;
 
     static const char* const aArrow[3] = { "ROrangeArrow.RLE", "RGreenArrow.RLE", "RBlueArrow.RLE" };
+    static const int16_t aLift[3] = { 0, 4, 0xe };
 
     dwListNode* pSent = this->pDataPoints.pSentinel;
-    dwListNode* pNode = pSent->pNext;
-    while (pNode != pSent)
+    for (dwListNode* pNode = pSent->pNext; pNode != pSent; pNode = pNode->pNext)
     {
-        dwRect r;
-        r.left = y; r.top = baseY;
-        r.right = x; r.bottom = 0;
-        if (state == 1)      { r.left = (int16_t)(y - 4);  }
-        else if (state == 2) { r.left = (int16_t)(y - 0xe); }
-
-        dwWidget* pPic = dwGuiPicture_New(&r, aArrow[(int)state], 0);
+        dwRect m = r;
+        m.top = (int16_t)(r.top - aLift[(int)state]);
+        m.bottom = (int16_t)(r.bottom - aLift[(int)state]);
+        dwWidget* pPic = dwGuiPicture_New(&m, aArrow[(int)state], 0);
         if (pPic != NULL)
             dwRef_Append(&this->children, pPic);
 
-        x = (int16_t)(y + 0x38);
-        y = (int16_t)(y + 0x15);
+        r.left = (int16_t)(r.left + 0x15);
+        r.right = (int16_t)(r.left + 0x23);
         state = (char)((state + 1) % 3);
-        pNode = pNode->pNext;
     }
 }
 
@@ -373,11 +371,11 @@ void dwRefGraph::LayoutMarkers()
 //  dwRefMenuItem
 // =================================================================================
 
-dwRefMenuItem::dwRefMenuItem(const char* pLabel, const char* pSortKey, const char* pTopic,
+dwRefMenuItem::dwRefMenuItem(const char* pTopicFile, const char* pName, const char* pCategory,
                              int value, uint8_t flag, dwRefPulldown* pSubmenu)
-    : label(pLabel, 0)
-    , sortKey(pSortKey, 0)
-    , topic(pTopic, 0)
+    : topicFile(pTopicFile, 0)
+    , name(pName, 0)
+    , category(pCategory, 0)
     , value(value)
     , flag(flag)
     , pSubmenu(pSubmenu)
@@ -479,8 +477,8 @@ dwRefPulldown::~dwRefPulldown()
 
     if (this->bIsSubmenu == 0)
     {
-        if (this->pFontNormal != NULL) { free(this->pFontNormal); }
-        if (this->pFontHot != NULL)    { free(this->pFontHot); }
+        if (this->pFontNormal != NULL) { operator delete(this->pFontNormal); } // allocated with operator new
+        if (this->pFontHot != NULL)    { operator delete(this->pFontHot); }
     }
 
     // pItems payloads are dwRefMenuItem* (delete = full item dtor).
@@ -560,10 +558,10 @@ int16_t dwRefPulldown::MeasureWidth()
     for (dwListNode* pNode = pSent->pNext; pNode != pSent; pNode = pNode->pNext)
     {
         dwRefMenuItem* pItem = (dwRefMenuItem*)pNode->pData;
-        int len = (int)pItem->sortKey.length; // *(int*)(item+0xc) = sortKey.length
-        if (len != 0)
+        int len = (int)pItem->name.length; // binary: item+0xc / item+0x14 — the shown name
+        if (len != 0 && this->pFontNormal != NULL)
         {
-            int16_t w = (int16_t)dwFont_MeasureString(this->pFontNormal, pItem->topic.pBuffer, len);
+            int16_t w = (int16_t)dwFont_MeasureString(this->pFontNormal, pItem->name.pBuffer, len);
             if ((uint16_t)this->width < (uint16_t)(w + 4))
                 this->width = (int16_t)(w + 4);
         }
@@ -605,46 +603,61 @@ void dwRefPulldown::ComputeRect()
 
 // dwRefPulldown_LayoutExpanded — position the expanded list / a
 // hovered submenu, flipping the anchor when it would run off-screen.
-void dwRefPulldown::LayoutExpanded(int16_t left, int16_t top, int hoverRow)
+void dwRefPulldown::LayoutExpanded(int16_t l, int16_t t, int16_t r, int16_t b, int hoverRow)
 {
-    int16_t screenW = stdDisplay_pCurVideoMode ? (int16_t)stdDisplay_pCurVideoMode->format.width : 0;
-    int16_t screenH = stdDisplay_pCurVideoMode ? (int16_t)stdDisplay_pCurVideoMode->format.height : 0;
+    // The binary tests against the video mode (always 640x480 for DW); the mode here is
+    // window-sized, so use the GUI space's own width.
+    int16_t screenW = 640;
 
     this->bLayingOut = 1;
     if (this->bIsSubmenu == 0)
     {
+        dwRefMenuItem* pSel = (dwRefMenuItem*)this->pSelectedItem;
+        dwRefPulldown* pSub = pSel ? pSel->pSubmenu : NULL;
         int16_t lineH = (int16_t)(this->pFontNormal ? this->pFontNormal->pHeader->lineHeight : 0);
-        int16_t rowY = (int16_t)(hoverRow != 0 ? (int16_t)hoverRow * lineH : 0);
-        rowY = (int16_t)(this->rectExpandTop + rowY);
+        int16_t rowY = (int16_t)(this->rectExpandTop + (hoverRow != 0 ? (int16_t)hoverRow * lineH : 0));
         this->field_0x9e = rowY;
-        int16_t rows = (int16_t)(this->pSelectedItem
-            ? ((dwRefMenuItem*)this->pSelectedItem)->pSubmenu
-                  ? 0 : 0
-            : 0);
-        (void)rows;
-        // Note: the binary reads the submenu's item count via
-        // *(short*)(*(int*)(this+0x40)+0x2c)->... to size the child list; here
-        // the height uses the selected submenu's own expandHeight.
-        this->field_0xa2 = (int16_t)(rowY + lineH + 1);
-        int16_t colTop = (int16_t)(this->rectExpandRight + 1);
-        this->field_0x9c = colTop;
-        int16_t w = this->MeasureWidth();
-        int16_t colRight = (int16_t)(w + 2 + colTop);
-        this->field_0xa0 = colRight;
-        if (screenW < colRight && screenH < this->field_0x9c)
+        // bottom = row + (submenu item count) * lineH + 1
+        int16_t subRows = pSub ? (int16_t)pSub->field_0x18 : 0;
+        this->field_0xa2 = (int16_t)(rowY + subRows * lineH + 1);
+        this->field_0x9c = (int16_t)(this->rectExpandRight + 1);
+        int16_t subW = pSub ? pSub->MeasureWidth() : 0;
+        this->field_0xa0 = (int16_t)(this->field_0x9c + subW + 2);
+        if (this->field_0xa0 > screenW && this->field_0x9c > 0)
         {
+            // Off the right edge: open it to the LEFT of the list instead.
             this->bLayingOut = 0;
-            int16_t back = (int16_t)(this->rectExpandLeft - 1);
-            this->field_0xa0 = back;
-            int16_t w2 = this->MeasureWidth();
-            this->field_0x9c = (int16_t)((back - w2) - 2);
+            this->field_0xa0 = (int16_t)(this->rectExpandLeft - 1);
+            this->field_0x9c = (int16_t)(this->field_0xa0 - (pSub ? pSub->MeasureWidth() : 0) - 2);
         }
     }
     else
     {
-        this->rectExpandLeft = left;
-        this->rectExpandTop = top;
+        this->rectExpandLeft = l;
+        this->rectExpandTop = t;
+        this->rectExpandRight = r;
+        this->rectExpandBottom = b;
     }
+}
+
+void dwRefPulldown::OpenSubmenuAt(dwRefPulldown* pSub, int row, int16_t x, int16_t y)
+{
+    pSub->pRootMenu = this->pRootMenu;
+    this->LayoutExpanded(this->left, this->top, this->right, this->bottom, row);
+    pSub->left = this->field_0x9c;  pSub->top = this->field_0x9e;
+    pSub->right = this->field_0xa0; pSub->bottom = this->field_0xa2;
+    pSub->LayoutExpanded(this->field_0x9c, this->field_0x9e, this->field_0xa0, this->field_0xa2, 0);
+    pSub->Invalidate();
+    // Save the list rect, then grow this widget's rect to cover the submenu so the
+    // mouse keeps reaching this menu while it is over the submenu (binary: the union
+    // is stored back into the widget rect; ApplyBounds restores the saved one later).
+    this->field_0x94 = this->left; this->field_0x96 = this->top;
+    this->field_0x98 = this->right; this->field_0x9a = this->bottom;
+    dwRect u;
+    u.left = this->left; u.top = this->top; u.right = this->right; u.bottom = this->bottom;
+    dwRect_Union(&u, pSub->GetRectPtr());
+    this->left = u.left; this->top = u.top; this->right = u.right; this->bottom = u.bottom;
+    pSub->OnMouseMove(x, y);
 }
 
 // dwRefPulldown_BuildSubmenu — spawn a nested submenu inheriting the
@@ -667,8 +680,8 @@ dwRefPulldown* dwRefPulldown::BuildSubmenu(char* pTopicFile)
 void dwRefPulldown::AddItem(char* pTopicFile, char* pLabel, char* pSortKey, uint32_t labelColor,
                             uint8_t flag, dwRefPulldown* pSubmenu)
 {
-    (void)pTopicFile; (void)labelColor;
-    dwRefMenuItem* pItem = new dwRefMenuItem(pLabel, pSortKey, pTopicFile, (int)labelColor,
+    // Binary: new(0x30){ +0x00 = pTopicFile, +0x0c = pLabel (name), +0x18 = pSortKey (category) }
+    dwRefMenuItem* pItem = new dwRefMenuItem(pTopicFile, pLabel, pSortKey, (int)labelColor,
                                              flag, pSubmenu);
 
     dwListNode* pSent = this->pItems.pSentinel;
@@ -676,9 +689,10 @@ void dwRefPulldown::AddItem(char* pTopicFile, char* pLabel, char* pSortKey, uint
     while (pNode != pSent)
     {
         dwRefMenuItem* pOther = (dwRefMenuItem*)pNode->pData;
-        if (pItem->sortKey.pBuffer == NULL || pOther->topic.pBuffer == NULL)
+        // Sorted by NAME (binary compares item+0x14 with the other item's +0x14).
+        if (pItem->name.pBuffer == NULL || pOther->name.pBuffer == NULL)
             break;
-        if (dwString_CompareI(pItem->sortKey.pBuffer, pOther->topic.pBuffer) < 1)
+        if (dwString_CompareI(pItem->name.pBuffer, pOther->name.pBuffer) < 1)
             break;
         pNode = pNode->pNext;
     }
@@ -722,13 +736,11 @@ void dwRefPulldown::BuildItems()
             char* pCat = dwConfFile_NextToken(&conf);
             uint32_t hasSubmenu = 0;
             dwConfFile_ParseULong(&conf, &hasSubmenu);
-            if (!dwString_Equals(this->field_0xa4.pBuffer /* category @+0x5c */, pCat))
-            {
-                if (this->bIsSubmenu == 0)
-                    continue; // TPC: keep scanning the same file
-                else
-                    continue;
-            }
+            // Binary: compares [this+0x5c] = label.pBuffer — the menu's category name from
+            // the .ifc ("Machines", "Forces", ...). (+0xa4 is the font name; comparing that
+            // matched nothing, so every menu stayed empty.)
+            if (!dwString_Equals(this->label.pBuffer, pCat))
+                continue; // keep scanning the same file
 
             dwRefPulldown* pSub = NULL;
             if (hasSubmenu != 0)
@@ -754,9 +766,18 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
 {
     if (this->bIsSubmenu == 0)
     {
+        // Binary: the collapsed test is against the SAVED header rect (+0x8c) and the
+        // expanded test against the list rect (+0x84) — never the widget rect, which grows
+        // to cover an open submenu (testing it took submenu hovers for list rows).
+        dwRect headerRect;
+        headerRect.left = this->savedLeft; headerRect.top = this->savedTop;
+        headerRect.right = this->savedRight; headerRect.bottom = this->savedBottom;
+        dwRect listRect;
+        listRect.left = this->rectExpandLeft; listRect.top = this->rectExpandTop;
+        listRect.right = this->rectExpandRight; listRect.bottom = this->rectExpandBottom;
         if (this->bExpanded == 0 && this->bOpen == 0)
         {
-            if (dwRect_ContainsPoint(this->GetRectPtr(), x, y) != 0)
+            if (dwRect_ContainsPoint(&headerRect, x, y) != 0)
             {
                 if (this->field_0xd4.length != 0 && this->field_0xcc == 0)
                 {
@@ -780,7 +801,7 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
         }
         else
         {
-            if (dwRect_ContainsPoint(this->GetRectPtr(), x, y) != 0)
+            if (dwRect_ContainsPoint(&listRect, x, y) != 0)
             {
                 this->field_0xcc = 1;
                 int lineH = this->pFontNormal ? (int)this->pFontNormal->pHeader->lineHeight : 1;
@@ -790,24 +811,12 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
                     pNode = pNode->pNext;
                 if (pNode == this->pItems.pSentinel)
                     pNode = this->pItems.pSentinel->pNext;
-                dwRefMenuItem* pItem = (dwRefMenuItem*)pNode->pData;
+                // Note: guard added — an empty list leaves pNode at the sentinel (crashed on
+                // the first mouse move over an open, empty menu).
+                dwRefMenuItem* pItem = (pNode != this->pItems.pSentinel) ? (dwRefMenuItem*)pNode->pData : NULL;
                 this->pSelectedItem = pItem;
                 if (pItem && pItem->pSubmenu != NULL)
-                {
-                    dwRefPulldown* pSub = pItem->pSubmenu;
-                    pSub->pRootMenu = this->pRootMenu;
-                    pSub->LayoutExpanded(this->left, this->top, row);
-                    pSub->field_0x9c = this->field_0x9c;
-                    pSub->field_0xa0 = this->field_0xa0;
-                    pSub->LayoutExpanded(this->field_0x9c, this->field_0xa0, 0);
-                    pSub->Invalidate();
-                    this->field_0x94 = this->left; this->field_0x96 = this->top;
-                    this->field_0x98 = this->right; this->field_0x9a = this->bottom;
-                    dwRect_Union(this->GetRectPtr(), pSub->GetRectPtr());
-                    this->left = this->field_0x94; this->top = this->field_0x96;
-                    this->right = this->field_0x98; this->bottom = this->field_0x9a;
-                    pSub->OnMouseMove(x, y);
-                }
+                    this->OpenSubmenuAt(pItem->pSubmenu, row, x, y);
                 this->field_0x1d = 1;
                 this->Invalidate();
                 return 1;
@@ -816,7 +825,8 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
             if (!(x < this->savedLeft || this->savedRight <= x ||
                   y < this->savedTop || this->savedBottom <= y))
             {
-                this->pSelectedItem = this->pItems.pSentinel->pNext->pData; // field_0x60->pData
+                this->pSelectedItem = (this->pItems.pSentinel->pNext != this->pItems.pSentinel)
+                    ? this->pItems.pSentinel->pNext->pData : NULL; // field_0x60->pData (guarded)
                 this->field_0x1d = 1;
                 this->Invalidate();
                 dwWidget_pMouseTarget = this;
@@ -871,7 +881,9 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
                 pNode = pNode->pNext;
             if (pNode == this->pItems.pSentinel)
             {
-                this->pSelectedItem = this->pItems.pSentinel->pNext->pData;
+                // Past the end: the LAST item (binary: sentinel->pPrev->pData).
+                this->pSelectedItem = (this->pItems.pSentinel->pPrev != this->pItems.pSentinel)
+                    ? this->pItems.pSentinel->pPrev->pData : NULL;
                 this->field_0x1d = 1;
                 this->Invalidate();
                 return 1;
@@ -882,15 +894,7 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
             dwRefMenuItem* pItem = (dwRefMenuItem*)this->pSelectedItem;
             if (pItem && pItem->pSubmenu != NULL)
             {
-                dwRefPulldown* pSub = pItem->pSubmenu;
-                pSub->pRootMenu = this->pRootMenu;
-                pSub->LayoutExpanded(this->left, this->top, row);
-                pSub->field_0x9c = this->field_0x9c;
-                pSub->field_0xa0 = this->field_0xa0;
-                pSub->LayoutExpanded(this->field_0x9c, this->field_0xa0, 0);
-                pSub->Invalidate();
-                dwRect_Union(this->GetRectPtr(), pSub->GetRectPtr());
-                pSub->OnMouseMove(x, y);
+                this->OpenSubmenuAt(pItem->pSubmenu, row, x, y); // (nested menus: never in the data)
                 return 1;
             }
         }
@@ -899,12 +903,32 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
             dwRefPulldown* pRoot = (dwRefPulldown*)this->pRootMenu;
             if (pRoot != NULL)
             {
+                int inRootList = !(x < pRoot->rectExpandLeft || pRoot->rectExpandRight <= x ||
+                                   y < pRoot->rectExpandTop || pRoot->rectExpandBottom <= y);
+                if (inRootList)
+                {
+                    // Back over the root's list: the root takes the mouse again; moving to
+                    // a different row closes this submenu and restores the root's rect.
+                    int lineH = this->pFontNormal ? (int)this->pFontNormal->pHeader->lineHeight : 1;
+                    int row = (int)((y - this->rectExpandTop) / (lineH ? lineH : 1));
+                    dwWidget_pMouseTarget = pRoot;
+                    if (row != (int)this->field_0xca)
+                    {
+                        this->field_0xcc = 0; this->bOpen = 0; this->bExpanded = 0;
+                        if (dwWidget_pMouseTarget == pRoot) dwWidget_pMouseTarget = NULL;
+                        this->Invalidate();
+                        pRoot->ApplyBounds();
+                        pRoot->Invalidate();
+                    }
+                    this->field_0xca = (int16_t)row;
+                    return 1;
+                }
                 if (y < pRoot->rectExpandTop && y < this->rectExpandTop)
                 {
                     this->field_0xcc = 0; this->bOpen = 0; this->bExpanded = 0;
                     if (dwWidget_pMouseTarget == this) dwWidget_pMouseTarget = NULL;
                     this->Invalidate();
-                    this->ApplyBounds();
+                    pRoot->ApplyBounds();
                     pRoot->OnMouseMove(x, y);
                 }
             }
@@ -917,8 +941,14 @@ int dwRefPulldown::OnMouseMove(int16_t x, int16_t y)
 // item (dropping into a submenu or closing), or dismiss on an outside click.
 int dwRefPulldown::OnMouseDown(int16_t x, int16_t y)
 {
+    // Binary: both header tests use the SAVED (collapsed) rect at +0x8c, not the current
+    // rect — once expanded the current rect covers the whole list, and testing it here
+    // swallowed every item click as a "click on the header: collapse".
+    dwRect headerRect;
+    headerRect.left = this->savedLeft; headerRect.top = this->savedTop;
+    headerRect.right = this->savedRight; headerRect.bottom = this->savedBottom;
     if (this->bExpanded == 0 && this->bOpen == 0 &&
-        dwRect_ContainsPoint(this->GetRectPtr(), x, y) != 0)
+        dwRect_ContainsPoint(&headerRect, x, y) != 0)
     {
         this->bExpanded = 1; this->bOpen = 1;
         dwWidget_pMouseTarget = this;
@@ -928,7 +958,7 @@ int dwRefPulldown::OnMouseDown(int16_t x, int16_t y)
         this->Invalidate();
         return 1;
     }
-    if (dwRect_ContainsPoint(this->GetRectPtr(), x, y) != 0 &&
+    if (dwRect_ContainsPoint(&headerRect, x, y) != 0 &&
         this->bExpanded != 0 && this->bOpen != 0)
     {
         this->bExpanded = 0; this->bOpen = 0;
@@ -952,6 +982,19 @@ int dwRefPulldown::OnMouseDown(int16_t x, int16_t y)
             this->bExpanded = 0; this->bOpen = 0;
             if (this->field_0xec.length != 0)
                 dwSound_Play(this->field_0xf8.pBuffer);
+            // Binary: post { field_0x4c, item->topicFile } — the topic opens.
+            {
+                dwRefMenuItem* pSel = (dwRefMenuItem*)this->pSelectedItem;
+                if (pSel != NULL)
+                {
+                    dwWidgetMsg msg;
+                    msg.code = (int32_t)this->field_0x4c;
+                    msg.pSender = pSel->topicFile.pBuffer;
+                    msg.param = 0;
+                    msg.pTarget = NULL;
+                    dwWidget_DispatchMsg(&msg, NULL);
+                }
+            }
             if (dwWidget_pMouseTarget == this) dwWidget_pMouseTarget = NULL;
             pRoot->left = pRoot->savedLeft; pRoot->top = pRoot->savedTop;
             pRoot->right = pRoot->savedRight; pRoot->bottom = pRoot->savedBottom;
@@ -967,6 +1010,17 @@ int dwRefPulldown::OnMouseDown(int16_t x, int16_t y)
         this->Invalidate();
         this->left = this->savedLeft; this->top = this->savedTop;
         this->right = this->savedRight; this->bottom = this->savedBottom;
+        // Binary: post { field_0x4c, item->topicFile } (the .ifc's Msg column, e.g. 7004 =
+        // 0x1b5c "show topic") — this was missing, so picking a topic did nothing.
+        if (pSel != NULL)
+        {
+            dwWidgetMsg msg;
+            msg.code = (int32_t)this->field_0x4c;
+            msg.pSender = pSel->topicFile.pBuffer;
+            msg.param = 0;
+            msg.pTarget = NULL;
+            dwWidget_DispatchMsg(&msg, NULL);
+        }
         if (dwWidget_pMouseTarget == this) dwWidget_pMouseTarget = NULL;
         return 1;
     }
@@ -1026,7 +1080,7 @@ void dwRefPulldown::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
             if (pHdr != NULL)
             {
                 int centerY = this->savedTop +
-                    (int16_t)(((this->savedRight - this->savedTop) - (int)pHdr->lineHeight) / 2) +
+                    (int16_t)(((this->savedBottom - this->savedTop) - (int)pHdr->lineHeight) / 2) + // binary: bottom - top
                     (int16_t)pHdr->bpp;
                 int16_t w = (int16_t)dwFont_MeasureString(this->pFontHot, this->label.pBuffer,
                                                           (int)this->label.length);
@@ -1064,7 +1118,8 @@ void dwRefPulldown::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         if (this->field_0x1d != 0 && (void*)pItem == this->pSelectedItem)
         {
             if (pItem->pSubmenu != NULL && this->bIsSubmenu == 0)
-                this->DrawChild(pDestBits, pClipRect);
+                pItem->pSubmenu->DrawChild(pDestBits, pClipRect); // binary: ecx = the submenu
+                                                                   // (drawing THIS recursed until the stack overflowed)
             dwRect hi; hi.left = box.left; hi.top = rowY;
             hi.right = box.right; hi.bottom = (int16_t)(rowY + lineH);
             dwImageDraw_BlendRect(pDestBits, &hi, 0xdc, pClipRect);
@@ -1075,11 +1130,11 @@ void dwRefPulldown::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         int16_t textX = (int16_t)(box.left + 4);
         int16_t glyphTop = (int16_t)((this->pFontNormal ? (int16_t)this->pFontNormal->pHeader->bpp : 0) + 1 + rowY);
         dwPoint p1; p1.x = textX; p1.y = glyphTop;
-        dwFont_DrawStringClipped(pDestBits, this->pFontNormal, &p1, pItem->topic.pBuffer,
+        dwFont_DrawStringClipped(pDestBits, this->pFontNormal, &p1, pItem->name.pBuffer,
                                  (uint8_t)dwColormap_transparentIdx, pClipRect);
         dwPoint p2; p2.x = (int16_t)(box.left + 3);
         p2.y = (int16_t)((this->pFontNormal ? (int16_t)this->pFontNormal->pHeader->bpp : 0) + rowY);
-        dwFont_DrawStringClipped(pDestBits, this->pFontNormal, &p2, pItem->topic.pBuffer,
+        dwFont_DrawStringClipped(pDestBits, this->pFontNormal, &p2, pItem->name.pBuffer,
                                  this->field_0x1c, pClipRect);
 
         pNode = pNode->pNext;

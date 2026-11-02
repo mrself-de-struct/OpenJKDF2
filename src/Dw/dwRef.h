@@ -128,16 +128,19 @@ struct dwRefGraph : dwWidgetGroup
 
 // One pull-down entry (0x30). AddItem builds these; the item dtor dwRefMenuItem_Dtor
 // (scalar-deleting wrapper dwRefMenuItem_DtorDelete) deletes any submenu then frees the strings.
+// Field roles verified against the binary (dwRefPulldown_AddItem / _MeasureWidth / _Draw /
+// _OnMouseDown): +0x00 is the topic FILE the entry opens, +0x0c the NAME it shows (and
+// sorts by), +0x18 the category it was matched on.
 struct dwRefMenuItem
 {
-    dwString label;         // 0x00
-    dwString sortKey;       // 0x0c: category sort key
-    dwString topic;         // 0x18: topic file the entry points at
-    int value;              // 0x24
+    dwString topicFile;     // 0x00: topic file (TPC/SUB path) posted with the select message
+    dwString name;          // 0x0c: TOPIC_NAME — the label drawn in the list; the sort key
+    dwString category;      // 0x18: TOPIC_CATEGORY it matched
+    int value;              // 0x24: the menu's message code
     uint8_t flag;           // 0x28
     dwRefPulldown* pSubmenu;// 0x2c: nested pull-down (owned) or NULL
 
-    dwRefMenuItem(const char* pLabel, const char* pSortKey, const char* pTopic,
+    dwRefMenuItem(const char* pTopicFile, const char* pName, const char* pCategory,
                   int value, uint8_t flag, dwRefPulldown* pSubmenu);
     ~dwRefMenuItem();
 };
@@ -163,10 +166,11 @@ struct dwRefPulldown : dwWidget
     void* pSelectedItem;      // 0x40: dwRefMenuItem* currently highlighted
     uint32_t field_0x44;      // 0x44
     dwFont* pFontNormal;      // 0x48
-    uint32_t field_0x4c;      // 0x4c: label-color param
+    uint32_t field_0x4c;      // 0x4c: the message code posted with the selected topic file
     uint8_t bExpanded;        // 0x50
     uint8_t bOpen;            // 0x51
-    dwString label;           // 0x54: collapsed label text
+    dwString label;           // 0x54: the menu's category name (the .ifc "Category" column):
+                              //       BuildItems matches TOPIC_CATEGORY against it; Draw shows it
     dwListNode* pVisibleHead; // 0x60: head node of the visible list (into pItems)
     dwList pItems;            // 0x64: dwRefMenuItem* payloads (sorted by category)
     dwList pListB;            // 0x68: TPC enumeration list
@@ -229,7 +233,15 @@ struct dwRefPulldown : dwWidget
     dwRefPulldown* BuildSubmenu(char* pTopicFile);
     void ComputeRect();
     int16_t MeasureWidth();
-    void LayoutExpanded(int16_t left, int16_t top, int hoverRow);
+    // Binary signature: two packed (x,y) dwords + hoverRow. On a ROOT menu the rect args
+    // are ignored and the hovered item's submenu rect is computed into field_0x9c..0xa2
+    // (flipped to the left edge when it would run off-screen); on a SUBMENU they become
+    // its expanded rect.
+    void LayoutExpanded(int16_t l, int16_t t, int16_t r, int16_t b, int hoverRow);
+    // Added: the shared "hovered item owns a submenu" hand-off of OnMouseMove (the binary
+    // inlines it twice): lay the submenu out beside row `row`, grow this rect to cover it,
+    // and forward the move.
+    void OpenSubmenuAt(dwRefPulldown* pSub, int row, int16_t x, int16_t y);
 };
 
 #endif // __cplusplus

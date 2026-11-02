@@ -11,6 +11,12 @@
 #include "Dw/dwRef.h"          // GRAPH -> dwRefGraph, PULLDOWN_MENU -> dwRefPulldown
 #include "Dw/dwAnim.h"         // ICON_ANIM_PLAY -> dwAnim_Open
 #include "Dw/dwGuiHypText.h"   // DENSITY_LABEL / TENSILE_LABEL -> dwGuiHypText
+#include "Dw/dwGuiTextMisc.h"  // Added: TEXTSLIDER/TEXTSPITTER/TEXTSTRIP/TYPEWRITER/SPITTIMER/STRIPTIMER/TEXTPOPUP
+#include "Dw/dwGuiTextBlock.h" // Added: TEXTBLOCK
+#include "Dw/dwGuiWidgets.h"   // Added: SEEALSO -> dwGuiTextRollover
+#include "Dw/dwHelp.h"         // Added: HELP -> dwHelp
+#include "Dw/dwGuiStatus.h"    // Added: STILL_FRAME -> dwGuiPicture
+#include "Dw/dwWorkshopCtrl.h" // Added: BACKDROP -> dwWcEntryPanel, BILEVEL -> dwWcMaterials
 #include "Dw/dwStringTable.h"
 #include "Dw/dwConfFile.h"
 #include "Dw/dwString.h"
@@ -298,8 +304,9 @@ dwWidget* dwGuiReference::CreateControl(char* pKeyword, dwConfFile* pConf)
         uint32_t code = 0;
         dwConfFile_ParseULong(pConf, &code);
         char* pFilename = dwGuiScreen_LocalizeString(pConf->pCursor, pTable);
-        // Sentinel filename (binary DAT_00529208) -> skip. Not localized here;
-        // the base factory's own sentinel check is unavailable, so accept it.
+        // Binary: a localized "0" (the topic has no panel) builds nothing.
+        if (dwString_Equals(pFilename, "0"))
+            return NULL;
         return new dwControlPanel(&rect, code, pFilename, pTable);
     }
 
@@ -364,11 +371,368 @@ dwWidget* dwGuiReference::CreateControl(char* pKeyword, dwConfFile* pConf)
         return pLabelW;
     }
 
-    // ANIM_VIEWER / BACKDROP / BILEVEL / STILL_FRAME / SEEALSO / TEXTBLOCK /
-    // TEXTPOPUP / TEXTSLIDER / TEXTSPITTER / TEXTSTRIP / TYPEWRITER / SPITTIMER /
-    // STRIPTIMER / HELP / HYP_TEXT / unknown -> base factory. TODO(dw-decomp):
-    // wire the anim-viewer + text-control branches (recipes at binary dwGuiReference_CreateControl).
+    // ---- Added: the remaining branches, from the binary dwGuiReference_CreateControl ----
+
+    // The four DYNAMIC_CONTROL types. The line carries: rect, a count (localized), the
+    // backdrop art (localized), [a caption count (localized)], the item message code; the
+    // NEXT line must be the matching *PARAMS marker, else nothing is built.
+    if (dwString_Equals(pKeyword, "ANIM_VIEWER") || dwString_Equals(pKeyword, "BACKDROP")
+        || dwString_Equals(pKeyword, "BILEVEL"))
+    {
+        int mode = dwString_Equals(pKeyword, "ANIM_VIEWER") ? 0 : dwString_Equals(pKeyword, "BACKDROP") ? 1 : 3;
+        const char* pMarker = (mode == 0) ? "AVPARAMS" : (mode == 1) ? "BDPARAMS" : "BLAVPARAMS";
+        dwConfFile_ParseRect(pConf, &rect);
+        int count = atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        char* pArt = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        int numText = 0;
+        if (mode != 1)
+            numText = (uint8_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        uint32_t code = 0;
+        dwConfFile_ParseULong(pConf, &code);
+        this->field_110 = (int32_t)code;
+        dwConfFile_ReadLine(pConf);
+        if (!dwString_Equals(dwConfFile_NextToken(pConf), pMarker))
+            return NULL;
+        return this->BuildAnimViewer(mode, &rect, count, pArt, pConf, numText, 0);
+    }
+
+    if (dwString_Equals(pKeyword, "STILL_FRAME"))
+    {
+        dwConfFile_ParseRect(pConf, &rect);
+        char* pArt = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        int count = atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        int numText = (uint8_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        uint32_t code = 0;
+        dwConfFile_ParseULong(pConf, &code);
+        this->field_110 = (int32_t)code;
+        dwConfFile_ReadLine(pConf);
+        char* pFirst = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        if (dwString_Equals(pFirst, "BLAVPARAMS") || dwString_Equals(pFirst, "AVPARAMS")
+            || dwString_Equals(pFirst, "BDPARAMS"))
+            return NULL;
+        int id = atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        if ((int16_t)count == 1 && id == 0)
+            return this->BuildAnimViewer(2, &rect, 1, pArt, pConf, numText, 1);
+        return this->BuildAnimViewer(2, &rect, count, pFirst, pConf, numText, id);
+    }
+
+    if (dwString_Equals(pKeyword, "HELP"))
+    {
+        // Binary: new(0x5c) dwHelp_Ctor(&rect, pCursor (the .flc), 0x6a)
+        dwConfFile_ParseRect(pConf, &rect);
+        return new dwHelp(&rect, pConf->pCursor, 0x6a);
+    }
+
+    if (dwString_Equals(pKeyword, "SPITTIMER") || dwString_Equals(pKeyword, "STRIPTIMER"))
+    {
+        // Same as the base TIMER: a timed show/hide decorator around the next keyword's control.
+        float t0 = 0.0f, t1 = 0.0f;
+        dwConfFile_ParseFloat(pConf, &t0);
+        dwConfFile_ParseFloat(pConf, &t1);
+        dwWidget* pChild = this->CreateControl(dwConfFile_NextToken(pConf), pConf);
+        if (!pChild)
+            return NULL;
+        return new dwGuiTimer(pChild, t0, t1);
+    }
+
+    if (dwString_Equals(pKeyword, "TEXTBLOCK"))
+    {
+        // TEXTBLOCK <format> <rect> <font> <color> <hAlign> <vAlign> <notifyCode> <textKey> <sound>
+        char* pFormat = dwConfFile_NextToken(pConf);
+        dwConfFile_ParseRect(pConf, &rect);
+        dwString fontName(dwConfFile_NextToken(pConf), 0);
+        uint32_t color = 0, hAlign = 0, vAlign = 0, notify = 0;
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseULong(pConf, &hAlign);
+        dwConfFile_ParseULong(pConf, &vAlign);
+        dwConfFile_ParseULong(pConf, &notify);
+        dwString markup;
+        char* pText = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        if (dwString_Equals(pText, "0"))
+        {
+            // No text for this page: a blank block, and ObsMenuSelect's STILL_FRAME is
+            // suppressed so the page falls back to the inquiry layout.
+            markup.Assign((char*)" ", 0);
+            this->bSuppressStill = 1;
+        }
+        else
+        {
+            markup.Assign(pText, 0);
+        }
+        char* pSound = pConf->pCursor;
+        dwGuiTextBlock* pBlock = new dwGuiTextBlock(&rect, fontName.pBuffer, (uint8_t)color,
+                                                    (uint8_t)hAlign, (uint8_t)vAlign, pFormat, pSound,
+                                                    (void*)(intptr_t)notify, markup.pBuffer);
+        // Binary returns the dwGuiHypText subobject (+0x14) as the widget.
+        return static_cast<dwGuiHypText*>(pBlock);
+    }
+
+    if (dwString_Equals(pKeyword, "TEXTPOPUP"))
+    {
+        // The base TEXTPOPUP, plus the reference room's greyed-out "observation" button
+        // when the topic has no observation page (O_TEXTBLOCK_TEXT is "0").
+        uint32_t cmdId = 0, colorA = 0, colorB = 0;
+        dwConfFile_ParseRect(pConf, &rect);
+        dwConfFile_ParseULong(pConf, &cmdId);
+        char* pFontName = dwConfFile_NextToken(pConf);
+        dwConfFile_ParseULong(pConf, &colorA);
+        dwConfFile_ParseULong(pConf, &colorB);
+        char* pText1 = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        char* pText2 = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        char* pSndOff = dwConfFile_NextToken(pConf);
+        char* pAlt = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        char* pSndClick = pConf->pCursor;
+        if (pTable == NULL)
+            return NULL;
+        dwString* pObs = pTable->Find("O_TEXTBLOCK_TEXT");
+        if (pObs == NULL)
+            return NULL;
+        if (dwString_Equals(pObs->pBuffer, "0") && dwString_Equals(pAlt, "rmicroscope.rle"))
+        {
+            return new dwGuiTextPopup(&rect, pText1, pFontName, 0x60, 0x60, 0, (char*)"RmicroscopeGR.rle",
+                                      pSndOff, (char*)"RmicroscopeGR.rle", (char*)"RFindError.WAV", 1);
+        }
+        return new dwGuiTextPopup(&rect, pText1, pFontName, (uint8_t)colorA, (uint8_t)colorB, (int)cmdId,
+                                  pText2, pSndOff, pAlt, pSndClick, 1);
+    }
+
+    if (dwString_Equals(pKeyword, "TEXTSLIDER"))
+    {
+        // TEXTSLIDER <l t r b (localized)> <font> <color> <speed> <textKey>
+        rect.left   = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.top    = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.right  = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.bottom = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        char* pFontName = dwConfFile_NextToken(pConf);
+        uint32_t color = 0;
+        float speed = 0.0f;
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseFloat(pConf, &speed);
+        char* pText = dwGuiScreen_LocalizeString(pConf->pCursor, pTable);
+        return new dwGuiTextSlider(&rect, pFontName, (uint8_t)color, speed, 0, pText);
+    }
+
+    if (dwString_Equals(pKeyword, "TEXTSPITTER"))
+    {
+        // TEXTSPITTER <rect> <font> <color> <mode> <textKey> <sound>
+        dwConfFile_ParseRect(pConf, &rect);
+        char* pFontName = dwConfFile_NextToken(pConf);
+        uint32_t color = 0, mode = 0;
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseULong(pConf, &mode);
+        char* pText = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        char* pSound = pConf->pCursor;
+        return new dwGuiTextSpitter(&rect, pFontName, (uint8_t)color, (int)mode, pSound, 0, pText);
+    }
+
+    if (dwString_Equals(pKeyword, "TEXTSTRIP"))
+    {
+        // TEXTSTRIP <l t r b (localized)> <color> <speed>
+        rect.left   = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.top    = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.right  = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.bottom = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        uint32_t color = 0;
+        float speed = 0.0f;
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseFloat(pConf, &speed);
+        return new dwGuiTextStrip(&rect, (uint8_t)color, speed);
+    }
+
+    if (dwString_Equals(pKeyword, "TYPEWRITER"))
+    {
+        // TYPEWRITER <l t r b (localized)> <font> <color> <duration> <textKey> <sound>
+        rect.left   = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.top    = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.right  = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.bottom = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        char* pFontName = dwConfFile_NextToken(pConf);
+        uint32_t color = 0;
+        float duration = 0.0f;
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseFloat(pConf, &duration);
+        char* pText = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        char* pSound = pConf->pCursor;
+        return new dwGuiTypewriter(&rect, pFontName, (uint8_t)color, duration, pSound, 0, 1, pText);
+    }
+
+    if (dwString_Equals(pKeyword, "HYP_TEXT"))
+    {
+        // HYP_TEXT <format> <l t r b (localized)> <font> <color> <textKey> — same build as
+        // DENSITY_LABEL.
+        char* pFormat = dwConfFile_NextToken(pConf);
+        rect.left   = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.top    = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.right  = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        rect.bottom = (int16_t)atoi(dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable));
+        char* pFont = dwConfFile_NextToken(pConf);
+        uint32_t color = 0;
+        dwConfFile_ParseULong(pConf, &color);
+        char* pText = dwGuiScreen_LocalizeString(pConf->pCursor, pTable);
+        dwGuiHypText* pLabelW = new dwGuiHypText(&rect, NULL, pFont, (uint8_t)color, pFormat);
+        pLabelW->text.Free();
+        pLabelW->SetText(pText);
+        return pLabelW;
+    }
+
+    if (dwString_Equals(pKeyword, "SEEALSO"))
+    {
+        // SEEALSO <rect> <cmd> <font> <targetKey> <color> <colorHot> <text...>
+        dwConfFile_ParseRect(pConf, &rect);
+        uint32_t cmd = 0, color = 0, colorHot = 0;
+        dwConfFile_ParseULong(pConf, &cmd);
+        char* pFont = dwConfFile_NextToken(pConf);
+        char* pTarget = dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable);
+        dwConfFile_ParseULong(pConf, &color);
+        dwConfFile_ParseULong(pConf, &colorHot);
+        char* pText = pConf->pCursor;
+        return static_cast<dwGuiTextButton*>(
+            new dwGuiTextRollover(&rect, pText, pFont, pTarget, (uint8_t)color, NULL,
+                                  (uint8_t)colorHot, NULL, (char*)"CTextRollover.WAV", (int)cmd));
+    }
+
     return dwGuiScreen::CreateControl(pKeyword, pConf);
+}
+
+// Added: the DYNAMIC_CONTROL builder (binary 0x42cd20; see the header). Every token is
+// localized through the topic's string table, exactly as the binary does.
+dwWidget* dwGuiReference::BuildAnimViewer(int mode, dwRect* pRect, int count, char* pArt,
+                                          dwConfFile* pConf, int numText, int extra)
+{
+    dwStringTable* pTable = this->pStringTable;
+#define DWREF_TOK() dwGuiScreen_LocalizeString(dwConfFile_NextToken(pConf), pTable)
+#define DWREF_REST() dwGuiScreen_LocalizeString(pConf->pCursor, pTable)
+    dwRect r;
+
+    if (mode == 0) // ANIM_VIEWER -> dwGuiAnimView: up to 5 anim lines, then captions
+    {
+        int pad = 5 - count;
+        dwGuiAnimView* pView = new dwGuiAnimView(pRect, pArt, this->field_110);
+        for (int i = count; i > 0 && !pConf->bEof; i--)
+        {
+            dwConfFile_ReadLine(pConf);
+            char* pName = DWREF_TOK();
+            int id = atoi(DWREF_TOK());
+            char* pFirst = DWREF_TOK();
+            char* pLast = DWREF_REST();
+            pView->AddItem(pName, id, 0, pFirst, pLast);
+        }
+        for (; pad > 0; pad--)
+            dwConfFile_ReadLine(pConf);
+        for (int i = numText; i > 0 && !pConf->bEof; i--)
+        {
+            dwConfFile_ReadLine(pConf);
+            char* pText = DWREF_TOK();
+            r.left = (int16_t)atoi(DWREF_TOK()); r.top = (int16_t)atoi(DWREF_TOK());
+            r.right = (int16_t)atoi(DWREF_TOK()); r.bottom = (int16_t)atoi(DWREF_TOK());
+            uint8_t color = (uint8_t)atoi(DWREF_TOK());
+            char* pFont = DWREF_REST();
+            dwPoint pos; pos.x = r.left; pos.y = r.top;
+            dwPoint size; size.x = r.right; size.y = r.bottom;
+            pView->AddHypTextChild(pText, pos, size, color, pFont);
+        }
+        pView->InitFirstFrame();
+        return static_cast<dwWidgetGroup*>(pView);
+    }
+
+    if (mode == 1) // BACKDROP -> dwWcEntryPanel: `count` timed text entries
+    {
+        dwWcEntryPanel* pPanel = new dwWcEntryPanel(pRect, pArt, (void*)(intptr_t)this->field_110);
+        for (int i = count; i > 0 && !pConf->bEof; i--)
+        {
+            dwConfFile_ReadLine(pConf);
+            r.left = (int16_t)atoi(DWREF_TOK()); r.top = (int16_t)atoi(DWREF_TOK());
+            r.right = (int16_t)atoi(DWREF_TOK()); r.bottom = (int16_t)atoi(DWREF_TOK());
+            char* pText = DWREF_TOK();
+            char* pFont = DWREF_TOK();
+            uint8_t color = (uint8_t)atoi(DWREF_TOK());
+            int id = (int)strtol(DWREF_TOK(), NULL, 10);
+            uint32_t kind = 0;
+            dwConfFile_ParseULong(pConf, &kind);
+            char* pMarkup = DWREF_TOK();
+            float start = (float)atof(DWREF_TOK());
+            float end = (float)atof(DWREF_TOK());
+            pPanel->AddEntry(r, pText, pFont, color, id, (int16_t)kind, pMarkup, start, end);
+        }
+        pPanel->ShowById(0x1b64);
+        return pPanel;
+    }
+
+    if (mode == 2) // STILL_FRAME -> dwGuiPicture: up to 3 stills, then captions
+    {
+        dwGuiPicture* pPic = new dwGuiPicture(pRect, pArt, this->field_110);
+        int pad = 3 - count;
+        for (int i = count; i > 0 && !pConf->bEof; i--)
+        {
+            if (extra != 0 && extra != 1)
+            {
+                // The first line was already consumed by the caller: its still is pArt/extra.
+                pPic->AddImage(pArt, (uint32_t)extra);
+                pPic->SelectById(extra);
+                extra = 0;
+                continue;
+            }
+            if (extra == 1)
+            {
+                pPic->AddImage(pArt, 0);
+                dwConfFile_ReadLine(pConf);
+                break;
+            }
+            dwConfFile_ReadLine(pConf);
+            char* pName = DWREF_TOK();
+            int id = atoi(DWREF_TOK());
+            pPic->AddImage(pName, (uint32_t)id);
+        }
+        for (; pad > 0; pad--)
+            dwConfFile_ReadLine(pConf);
+        for (int i = numText; i > 0 && !pConf->bEof; i--)
+        {
+            char* pText = DWREF_TOK();
+            r.left = (int16_t)atoi(DWREF_TOK()); r.top = (int16_t)atoi(DWREF_TOK());
+            r.right = (int16_t)atoi(DWREF_TOK()); r.bottom = (int16_t)atoi(DWREF_TOK());
+            uint8_t color = (uint8_t)atoi(DWREF_TOK());
+            char* pFont = DWREF_REST();
+            pPic->AddText(pText, r.left, r.top, color, pFont);
+            if (i > 1)
+                dwConfFile_ReadLine(pConf);
+        }
+        pPic->SelectById(0x1b64);
+        return pPic;
+    }
+
+    if (mode == 3) // BILEVEL -> dwWcMaterials: up to 9 anim lines, then captions
+    {
+        int pad = 9 - count;
+        dwWcMaterials* pMats = new dwWcMaterials(pRect, pArt, (void*)(intptr_t)this->field_110);
+        for (int i = count; i > 0 && !pConf->bEof; i--)
+        {
+            dwConfFile_ReadLine(pConf);
+            char* pName = DWREF_TOK();
+            int id = atoi(DWREF_TOK());
+            char* pFirst = DWREF_TOK();
+            char* pLast = DWREF_REST();
+            pMats->AddEntry(pName, id, 0, pFirst, pLast);
+        }
+        for (; pad > 0; pad--)
+            dwConfFile_ReadLine(pConf);
+        for (int i = numText; i > 0 && !pConf->bEof; i--)
+        {
+            dwConfFile_ReadLine(pConf);
+            char* pText = DWREF_TOK();
+            r.left = (int16_t)atoi(DWREF_TOK()); r.top = (int16_t)atoi(DWREF_TOK());
+            r.right = (int16_t)atoi(DWREF_TOK()); r.bottom = (int16_t)atoi(DWREF_TOK());
+            uint8_t color = (uint8_t)atoi(DWREF_TOK());
+            char* pFont = DWREF_REST();
+            dwPoint pos; pos.x = r.left; pos.y = r.top;
+            dwPoint size; size.x = r.right; size.y = r.bottom;
+            pMats->AddLabel(pText, pos, size, color, pFont);
+        }
+        pMats->RefreshSelection();
+        return static_cast<dwWidgetGroup*>(pMats);
+    }
+#undef DWREF_TOK
+#undef DWREF_REST
+    return NULL;
 }
 
 // Clear a set of content groups (helper for the page-navigation cases).
