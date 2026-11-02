@@ -190,6 +190,8 @@ extern int dwDisplay_bHwScene;
 extern int dwDisplay_bHwView;
 #define STD3D_DW_SCENE (dwDisplay_bHwScene)
 #define STD3D_DW_VIEW  (dwDisplay_bHwView)
+static void std3D_DwPresentViewLayer(void); // the workshop view layer (end of file)
+static void std3D_DwFreeViewLayer(void);
 #else
 #define STD3D_DW_SCENE (0)
 #define STD3D_DW_VIEW  (0)
@@ -727,6 +729,9 @@ void std3D_FreeResources()
     glDeleteProgram(programMenu);
     std3D_deleteFramebuffer(&std3D_framebuffers[0]);
     std3D_deleteFramebuffer(&std3D_framebuffers[1]);
+#ifdef PLATFORM_DROIDWORKS
+    std3D_DwFreeViewLayer(); // Added
+#endif
     glDeleteTextures(1, &blank_tex);
     glDeleteTextures(1, &blank_tex_white);
     glDeleteTextures(1, &worldpal_texture);
@@ -1254,6 +1259,9 @@ void std3D_DrawMenu()
     rdsw_bWorldPresented = Video_swWorldPresentPending; // capture before PresentSWWorld clears it
     // Draw the full-window software world (world + composited HUD) as the single frame.
     std3D_PresentSWWorld();
+#endif
+#ifdef PLATFORM_DROIDWORKS
+    std3D_DwPresentViewLayer(); // Added: the DW workshop views, under the 8-bit GUI
 #endif
 
     glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
@@ -3723,6 +3731,41 @@ void std3D_ScreenshotWindow(const char* pFpath)
     // pass the raw buffer (no manual flip) — exactly like std3D_Screenshot.
     jkgm_write_png(pFpath, w, h, data);
     free(data);
+    // OPENJKDF2_AUTOSHOT_DEBUG=1: also dump the 8-bit menu buffer and the menu texture as PGMs.
+    const char* pDbg = getenv("OPENJKDF2_AUTOSHOT_DEBUG");
+    if (pDbg && *pDbg && *pDbg != '0')
+    {
+        int mw = Video_menuBuffer.format.width, mh = Video_menuBuffer.format.height;
+        int pitch = Video_menuBuffer.sdlSurface ? Video_menuBuffer.sdlSurface->pitch : -1;
+        GLint tw = 0, th = 0;
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, Video_menuTexId);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &tw);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
+        GLint pa = 0, pr = 0, ua = 0, ur = 0;
+        glGetIntegerv(GL_PACK_ALIGNMENT, &pa); glGetIntegerv(GL_PACK_ROW_LENGTH, &pr);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &ua); glGetIntegerv(GL_UNPACK_ROW_LENGTH, &ur);
+        stdPlatform_Printf("AUTOSHOT_DEBUG: menuBuffer %dx%d rowSize %d pitch %d; menuTex %dx%d; pack %d/%d unpack %d/%d; window %dx%d; otherBuf %dx%d rowSize %d\n",
+            mw, mh, Video_menuBuffer.format.rowSize, pitch, tw, th, pa, pr, ua, ur, Window_xSize, Window_ySize,
+            Video_otherBuf.format.width, Video_otherBuf.format.height, Video_otherBuf.format.rowSize);
+        char tmp[1024];
+        if (Video_menuBuffer.sdlSurface && mw > 0 && mh > 0)
+        {
+            snprintf(tmp, sizeof(tmp), "%s.gui.pgm", pFpath);
+            FILE* f = fopen(tmp, "wb");
+            if (f) { fprintf(f, "P5\n%d %d\n255\n", mw, mh); for (int r = 0; r < mh; r++) fwrite((uint8_t*)Video_menuBuffer.sdlSurface->pixels + (size_t)r * pitch, 1, (size_t)mw, f); fclose(f); }
+        }
+        if (tw > 0 && th > 0)
+        {
+            uint8_t* t = (uint8_t*)malloc((size_t)tw * th);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_UNSIGNED_BYTE, t);
+            snprintf(tmp, sizeof(tmp), "%s.tex.pgm", pFpath);
+            FILE* f = fopen(tmp, "wb");
+            if (f) { fprintf(f, "P5\n%d %d\n255\n", tw, th); fwrite(t, 1, (size_t)tw * th, f); fclose(f); }
+            free(t);
+        }
+    }
 #endif
 }
 #endif
@@ -3801,6 +3844,282 @@ int std3D_DwReadbackRect(int x, int y, int w, int h, uint8_t* pOutRgb, uint8_t* 
     }
     free(pRgb);
     free(pDepth);
+    return 1;
+}
+
+// ---- Added: DroidWorks direct (no readback) workshop views — the persistent view layer ----
+// A GL-rendered view is composited per view rect (the droid over the 8-bit GUI backdrop that
+// was under it) into a scene-FBO-sized layer FBO that survives the per-present scene clears.
+// The present blits the layer under the GUI's menu quad, and the view's canvas rect is punched
+// to palette index 0 (the menu shader's transparent index) so the layer shows through there,
+// while widgets drawn after the view (markers, dialogs, the cursor) still cover it in 8-bit
+// draw order. The layer is never cleared on screen changes: only index-0 GUI pixels reveal
+// it, and a stale view region there is exactly what a shaded screen snapshot (dwGuiScreen_
+// CaptureShadedScreen) wants to show. See Dw/dwGui3DView.cpp.
+static std3DIntermediateFbo std3D_dwViewLayer;
+static int std3D_dwViewLayerValid = 0;
+
+// GUI rect (640x480 space) -> scene FBO pixel rect, with the DW letterbox mapping of
+// std3D_DrawRenderList. Rounded to the pixels whose centers fall inside the rect: that is
+// the set the rasterizer fills for a quad at the exact fractional bounds, and the set the
+// present's nearest-sampled menu quad maps onto these GUI pixels — so the punched hole and
+// the layer pixels line up exactly.
+static int std3D_DwViewRectToFb(int x, int y, int w, int h, int fbW, int fbH, int* pX0, int* pY0, int* pX1, int* pY1)
+{
+    double s = (double)fbH / 480.0;
+    double offX = ((double)fbW - 640.0 * s) / 2.0;
+    int px0 = (int)floor(x * s + offX + 0.5), py0 = (int)floor(y * s + 0.5);
+    int px1 = (int)floor((x + w) * s + offX + 0.5), py1 = (int)floor((y + h) * s + 0.5);
+    if (px0 < 0) px0 = 0;
+    if (py0 < 0) py0 = 0;
+    if (px1 > fbW) px1 = fbW;
+    if (py1 > fbH) py1 = fbH;
+    *pX0 = px0; *pY0 = py0; *pX1 = px1; *pY1 = py1;
+    return px1 > px0 && py1 > py0;
+}
+
+static int std3D_DwEnsureViewLayer(int w, int h)
+{
+    if (std3D_dwViewLayer.fbo && std3D_dwViewLayer.w == w && std3D_dwViewLayer.h == h)
+        return 1;
+    if (std3D_dwViewLayer.fbo)
+        std3D_deleteIntermediateFbo(&std3D_dwViewLayer);
+    memset(&std3D_dwViewLayer, 0, sizeof(std3D_dwViewLayer));
+    std3D_dwViewLayerValid = 0;
+    if (w <= 0 || h <= 0) return 0;
+    std3D_generateIntermediateFbo(w, h, &std3D_dwViewLayer, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    return 1;
+}
+
+void std3D_DwClearViewLayer()
+{
+    std3D_dwViewLayerValid = 0;
+    if (Main_bHeadless || !has_initted || !std3D_dwViewLayer.fbo) return;
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
+}
+
+static void std3D_DwFreeViewLayer()
+{
+    if (std3D_dwViewLayer.fbo)
+        std3D_deleteIntermediateFbo(&std3D_dwViewLayer);
+    memset(&std3D_dwViewLayer, 0, sizeof(std3D_dwViewLayer));
+    std3D_dwViewLayerValid = 0;
+}
+
+int std3D_DwBeginViewRect(int x, int y, int w, int h)
+{
+    // Right after std3D_StartScene cleared the scene FBO: seed the view's rect with the
+    // layer's current pixels. GUI pixels inside this rect that another view already punched
+    // (index 0) are discarded by the backdrop quad in std3D_DwCompositeViewRect, so that
+    // view's pixels survive underneath instead of turning black.
+    if (Main_bHeadless || !has_initted || !std3D_pFb) return 0;
+    if (!std3D_dwViewLayerValid || !std3D_dwViewLayer.fbo
+        || std3D_dwViewLayer.w != std3D_pFb->w || std3D_dwViewLayer.h != std3D_pFb->h)
+        return 0;
+    int fbW = std3D_pFb->w, fbH = std3D_pFb->h, px0, py0, px1, py1;
+    if (!std3D_DwViewRectToFb(x, y, w, h, fbW, fbH, &px0, &py0, &px1, &py1)) return 0;
+
+    static const GLenum att0 = GL_COLOR_ATTACHMENT0;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, std3D_pFb->fbo);
+    glDrawBuffers(1, &att0); // a blit writes EVERY draw buffer: keep it off the emissive/SSAO targets
+    // GL rows run bottom-up; both FBOs share the size, so the same rect on both sides.
+    glBlitFramebuffer(px0, fbH - py1, px1, fbH - py0, px0, fbH - py1, px1, fbH - py0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    std3D_SetSceneDrawBuffers();
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_pFb->fbo);
+    return 1;
+}
+
+int std3D_DwCompositeViewRect(int x, int y, int w, int h, const uint8_t* pGuiRect, int guiStride)
+{
+    if (Main_bHeadless || !has_initted || !std3D_pFb || w <= 0 || h <= 0 || !pGuiRect) return 0;
+    static int noComposite = -1; // DW_HW_NOCOMPOSITE=1: debug, punch the hole but touch no GL state
+    if (noComposite < 0) { const char* p = getenv("DW_HW_NOCOMPOSITE"); noComposite = (p && *p && *p != '0') ? 1 : 0; }
+    if (noComposite) return 1;
+    int fbW = std3D_pFb->w, fbH = std3D_pFb->h;
+    int texW = Video_menuBuffer.format.width, texH = Video_menuBuffer.format.height;
+    if (x < 0 || y < 0 || x + w > texW || y + h > texH) return 0;
+    int px0, py0, px1, py1;
+    if (!std3D_DwViewRectToFb(x, y, w, h, fbW, fbH, &px0, &py0, &px1, &py1)) return 0;
+    if (!std3D_DwEnsureViewLayer(fbW, fbH)) return 0;
+
+    // 1. The GUI pixels under the view -> the menu texture's rect (the present re-uploads the
+    //    whole menu buffer anyway, so this scratch use is harmless).
+    //    The GUI buffer is window-sized with rows padded to 4 bytes (1708-byte rows for a
+    //    1706-wide buffer at 1920x1080): the present's whole-buffer upload relies on the
+    //    default UNPACK_ALIGNMENT of 4 to skip that padding, so it is restored afterwards —
+    //    leaving it at 1 sheared the entire GUI by 2 pixels per row.
+    GLint savedUnpackAlign = 4;
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &savedUnpackAlign);
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glBindTexture(GL_TEXTURE_2D, Video_menuTexId);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, guiStride);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, GL_RED, GL_UNSIGNED_BYTE, pGuiRect);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, savedUnpackAlign);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, displaypal_texture);
+    glActiveTexture(GL_TEXTURE0 + 0);
+
+    // 2. Backdrop quad into the scene FBO, BEHIND the droid: every fragment is forced to the
+    //    clear depth (glDepthRange 1..1) and passes only where the depth is still the clear
+    //    value, i.e. where the view drew nothing. Same program, texture (GL_NEAREST) and
+    //    letterbox math as the present's menu quad, so it is pixel-identical to the GUI
+    //    around it. Index 0 (holes of other views) is discarded: the seed from
+    //    std3D_DwBeginViewRect stays.
+    static const GLenum att0 = GL_COLOR_ATTACHMENT0;
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_pFb->fbo);
+    glDrawBuffers(1, &att0);
+    glViewport(0, 0, fbW, fbH);
+    glEnable(GL_DEPTH_TEST);
+    glDepthRange(1.0, 1.0);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glUseProgram(programMenu);
+    glUniform1i(programMenu_uniform_tex, 0);
+    glUniform1i(programMenu_uniform_displayPalette, 1);
+
+    double s = (double)fbH / 480.0;
+    double offX = ((double)fbW - 640.0 * s) / 2.0;
+    float X0 = (float)(x * s + offX), X1 = (float)((x + w) * s + offX);
+    float Y0 = (float)(y * s), Y1 = (float)((y + h) * s);
+    float u0 = (float)x / (float)texW, u1 = (float)(x + w) / (float)texW;
+    float v0 = (float)y / (float)texH, v1 = (float)(y + h) / (float)texH;
+    D3DVERTEX quad[4];
+    memset(quad, 0, sizeof(quad));
+    quad[0].x = X0; quad[0].y = Y0; quad[0].tu = u0; quad[0].tv = v0; quad[0].color = 0xFFFFFFFF;
+    quad[1].x = X0; quad[1].y = Y1; quad[1].tu = u0; quad[1].tv = v1; quad[1].color = 0xFFFFFFFF;
+    quad[2].x = X1; quad[2].y = Y1; quad[2].tu = u1; quad[2].tv = v1; quad[2].color = 0xFFFFFFFF;
+    quad[3].x = X1; quad[3].y = Y0; quad[3].tu = u1; quad[3].tv = v0; quad[3].color = 0xFFFFFFFF;
+    static const GLushort idx[6] = {1, 0, 2, 0, 3, 2};
+
+    float scaleX = 1.0f / ((float)fbW / 2.0f), scaleY = 1.0f / ((float)fbH / 2.0f);
+    float d3dmat[16] = {
+       scaleX,                   0,                      0,  0,
+       0,                        -scaleY,                0,  0,
+       0,                        0,                      1,  0,
+       -((float)fbW/2)*scaleX,   ((float)fbH/2)*scaleY,  -1, 1
+    };
+    glUniformMatrix4fv(programMenu_uniform_mvp, 1, GL_FALSE, d3dmat);
+
+    glBindBuffer(GL_ARRAY_BUFFER, menu_vbo_all);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STREAM_DRAW);
+    glVertexAttribPointer(programMenu_attribute_coord3d, 3, GL_FLOAT, GL_FALSE, sizeof(D3DVERTEX), (GLvoid*)offsetof(D3DVERTEX, x));
+    glVertexAttribPointer(programMenu_attribute_v_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(D3DVERTEX), (GLvoid*)offsetof(D3DVERTEX, color));
+    glVertexAttribPointer(programMenu_attribute_v_uv, 2, GL_FLOAT, GL_FALSE, sizeof(D3DVERTEX), (GLvoid*)offsetof(D3DVERTEX, tu));
+    glEnableVertexAttribArray(programMenu_attribute_coord3d);
+    glEnableVertexAttribArray(programMenu_attribute_v_color);
+    glEnableVertexAttribArray(programMenu_attribute_v_uv);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, menu_ibo_triangle);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(idx), idx, GL_STREAM_DRAW);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+    glDisableVertexAttribArray(programMenu_attribute_v_uv);
+    glDisableVertexAttribArray(programMenu_attribute_v_color);
+    glDisableVertexAttribArray(programMenu_attribute_coord3d);
+
+    // 3. Back to the scene state std3D_StartScene establishes.
+    glDepthRange(0.0, 1.0);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_BLEND);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT);
+    std3D_SetSceneDrawBuffers();
+
+    // 4. Scene rect -> layer rect.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_pFb->fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glBlitFramebuffer(px0, fbH - py1, px1, fbH - py0, px0, fbH - py1, px1, fbH - py0, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_pFb->fbo);
+    std3D_dwViewLayerValid = 1;
+    return 1;
+}
+
+// Present side (std3D_DrawMenu): the layer under the GUI's menu quad. Skipped while the
+// mission scene is live — std3D_DrawSceneFbo has just drawn the world there.
+static void std3D_DwPresentViewLayer()
+{
+    if (!std3D_dwViewLayerValid || !std3D_dwViewLayer.fbo || STD3D_DW_SCENE) return;
+    static int noBlit = -1; // DW_HW_NOLAYERBLIT=1: debug, present without the layer
+    if (noBlit < 0) { const char* p = getenv("DW_HW_NOLAYERBLIT"); noBlit = (p && *p && *p != '0') ? 1 : 0; }
+    if (noBlit) return;
+    int lw = std3D_dwViewLayer.w, lh = std3D_dwViewLayer.h;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, std3D_windowFbo);
+    glBlitFramebuffer(0, 0, lw, lh, 0, 0, Window_xSize, Window_ySize, GL_COLOR_BUFFER_BIT,
+                      (lw == Window_xSize && lh == Window_ySize) ? GL_NEAREST : GL_LINEAR);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
+}
+
+int std3D_DwReadbackLayerRect(int x, int y, int w, int h, uint8_t* pOutRgb)
+{
+    if (Main_bHeadless || !has_initted || !std3D_dwViewLayerValid || !std3D_dwViewLayer.fbo || w <= 0 || h <= 0) return 0;
+    int fbW = std3D_dwViewLayer.w, fbH = std3D_dwViewLayer.h;
+    if (fbW <= 0 || fbH <= 0) return 0;
+
+    double s = (double)fbH / 480.0;
+    double offX = ((double)fbW - 640.0 * s) / 2.0;
+    int px0 = (int)floor(x * s + offX), py0 = (int)floor(y * s);
+    int px1 = (int)ceil((x + w) * s + offX), py1 = (int)ceil((y + h) * s);
+    if (px0 < 0) px0 = 0;
+    if (py0 < 0) py0 = 0;
+    if (px1 > fbW) px1 = fbW;
+    if (py1 > fbH) py1 = fbH;
+    int pw = px1 - px0, ph = py1 - py0;
+    if (pw <= 0 || ph <= 0) return 0;
+
+    uint8_t* pRgb = (uint8_t*)malloc((size_t)pw * ph * 3);
+    if (!pRgb) return 0;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_dwViewLayer.fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(px0, fbH - py1, pw, ph, GL_RGB, GL_UNSIGNED_BYTE, pRgb);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
+
+    for (int gy = 0; gy < h; gy++)
+    {
+        int by0 = (int)floor((y + gy) * s) - py0;
+        int by1 = (int)floor((y + gy + 1) * s) - py0;
+        if (by1 <= by0) by1 = by0 + 1;
+        if (by0 < 0) by0 = 0;
+        if (by1 > ph) by1 = ph;
+        for (int gx = 0; gx < w; gx++)
+        {
+            int bx0 = (int)floor((x + gx) * s + offX) - px0;
+            int bx1 = (int)floor((x + gx + 1) * s + offX) - px0;
+            if (bx1 <= bx0) bx1 = bx0 + 1;
+            if (bx0 < 0) bx0 = 0;
+            if (bx1 > pw) bx1 = pw;
+            uint32_t sumR = 0, sumG = 0, sumB = 0, cnt = 0;
+            for (int by = by0; by < by1; by++)
+            {
+                int row = ph - 1 - by;
+                for (int bx = bx0; bx < bx1; bx++)
+                {
+                    int i = row * pw + bx;
+                    sumR += pRgb[i * 3 + 0]; sumG += pRgb[i * 3 + 1]; sumB += pRgb[i * 3 + 2];
+                    cnt++;
+                }
+            }
+            int o = gy * w + gx;
+            pOutRgb[o * 3 + 0] = (uint8_t)(cnt ? sumR / cnt : 0);
+            pOutRgb[o * 3 + 1] = (uint8_t)(cnt ? sumG / cnt : 0);
+            pOutRgb[o * 3 + 2] = (uint8_t)(cnt ? sumB / cnt : 0);
+        }
+    }
+    free(pRgb);
     return 1;
 }
 #endif // PLATFORM_DROIDWORKS

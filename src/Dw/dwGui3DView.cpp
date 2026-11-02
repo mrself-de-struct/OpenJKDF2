@@ -37,6 +37,8 @@ extern "C" {
 #include "Raster/rdZRaster.h" // SW z-buffer per-frame clear (shared bracket)
 #include "Platform/std3D.h"   // Added: std3D_DwReadbackRect (GL bracket)
 #include <stdio.h>             // Added: DW_READBACK_DUMP
+#include <stdlib.h>            // Added: getenv
+#include <string.h>            // Added: memset
 #include "stdPlatform.h"
 #endif
 }
@@ -231,6 +233,19 @@ static void dwGui3DView_EnsureQuantLut(const rdColormap* pMap)
     dwGui3DView_lutMapSum = sum;
 }
 
+// DW_HW_READBACK=1 forces the readback (256-color) compositing for every view — a debug
+// switch to compare against the direct layer path.
+static int dwGui3DView_bReadback()
+{
+    static int cached = -1;
+    if (cached < 0)
+    {
+        const char* p = getenv("DW_HW_READBACK");
+        cached = (p && *p && *p != '0') ? 1 : 0;
+    }
+    return cached;
+}
+
 rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw)
 {
     rdCanvas* pCanvas = rdCamera_g_pCurCamera->pCanvas;
@@ -238,12 +253,22 @@ rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw)
     rdroid_bSoftwareRenderer = 0; // rdCache_Flush takes the std3D path (DW forces SW otherwise)
     dwDisplay_bHwView = 1;        // std3D: DW 640x480 mapping + light with rdColormap_pCurMap
     rdAdvanceFrame();             // std3D_StartScene: clears the scene FBO (color + depth)
+    // Direct mode: seed the view's rect from the layer so holes another view punched inside
+    // this rect keep that view's pixels (std3D_DwCompositeViewRect discards index 0 there).
+    if (!dwGui3DView_bReadback())
+    {
+        int x = pCanvas->xStart, y = pCanvas->yStart;
+        std3D_DwBeginViewRect(x, y, pCanvas->widthMinusOne - x + 1, pCanvas->heightMinusOne - y + 1);
+    }
     return pCanvas;
 }
 
-void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw)
+// Readback (256-color) compositing of the rect the view just rendered: box-filter the scene
+// FBO to one sample per GUI pixel, quantize to rdColormap_pCurMap, write the covered pixels
+// into the 8bpp canvas. Used for the part-pick render (its result is sampled from the 8-bit
+// screen) and as the fallback when the layer composite is unavailable.
+static void dwGui3DView_ReadbackIntoCanvas(rdCanvas* pCanvas)
 {
-    rdFinishFrame();              // flushes the render list into the scene FBO
 
     int x = pCanvas->xStart, y = pCanvas->yStart;
     int w = pCanvas->widthMinusOne - x + 1, h = pCanvas->heightMinusOne - y + 1;
@@ -298,12 +323,79 @@ void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw)
         free(pRgb);
         free(pCov);
     }
+}
 
+// Direct compositing: the GUI pixels under the view go behind the droid in std3D's view
+// layer (std3D_DwCompositeViewRect), and the view rect is punched to palette index 0 — the
+// menu shader's transparent index — so the present shows the layer through it at full
+// window resolution and color. Widgets drawn after the view (markers, dialogs, the cursor)
+// still land on top in the usual 8-bit draw order. Returns 0 when the layer is unavailable.
+static int dwGui3DView_CompositeIntoLayer(rdCanvas* pCanvas)
+{
+    int x = pCanvas->xStart, y = pCanvas->yStart;
+    int w = pCanvas->widthMinusOne - x + 1, h = pCanvas->heightMinusOne - y + 1;
+    tVBuffer* pVBuf = pCanvas->pVBuffer;
+    if (!pVBuf || w <= 0 || h <= 0 || x < 0 || y < 0
+        || x + w > (int)pVBuf->format.width || y + h > (int)pVBuf->format.height)
+        return 0;
+    int bDone = 0;
+    stdDisplay_VBufferLock(pVBuf);
+    uint8_t* pPix = (uint8_t*)pVBuf->surface_lock_alloc;
+    if (pPix)
+    {
+        int stride = pVBuf->format.rowSize;
+        if (std3D_DwCompositeViewRect(x, y, w, h, pPix + (size_t)y * stride + x, stride))
+        {
+            for (int gy = 0; gy < h; gy++)
+                memset(pPix + (size_t)(y + gy) * stride + x, 0, (size_t)w);
+            bDone = 1;
+        }
+    }
+    stdDisplay_VBufferUnlock(pVBuf);
+    return bDone;
+}
+
+void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw)
+{
+    rdFinishFrame();              // flushes the render list into the scene FBO
+    if (dwGui3DView_bReadback() || !dwGui3DView_CompositeIntoLayer(pCanvas))
+        dwGui3DView_ReadbackIntoCanvas(pCanvas);
     dwDisplay_bHwView = 0;
     rdroid_bSoftwareRenderer = savedSw;
 }
 
-#define DWGUI3DVIEW_RENDER_HW_BIT 0x10000
+void dwGui3DView_EndHwRenderReadback(rdCanvas* pCanvas, int savedSw)
+{
+    rdFinishFrame();
+    dwGui3DView_ReadbackIntoCanvas(pCanvas);
+    dwDisplay_bHwView = 0;
+    rdroid_bSoftwareRenderer = savedSw;
+}
+
+void dwGui3DView_FillHolesFromLayer(uint8_t* pPixels, int stride, int w, int h)
+{
+    if (!dwDisplay_bHwRender || dwGui3DView_bReadback() || !pPixels || w <= 0 || h <= 0) return;
+    const rdColormap* pMap = rdColormap_pCurMap;
+    if (!pMap) return;
+    uint8_t* pRgb = (uint8_t*)malloc((size_t)w * h * 3);
+    if (pRgb && std3D_DwReadbackLayerRect(0, 0, w, h, pRgb))
+    {
+        dwGui3DView_EnsureQuantLut(pMap);
+        for (int gy = 0; gy < h; gy++)
+        {
+            uint8_t* pRow = pPixels + (size_t)gy * stride;
+            for (int gx = 0; gx < w; gx++)
+            {
+                if (pRow[gx] != 0) continue;
+                int o = gy * w + gx;
+                int c = ((pRgb[o * 3 + 0] >> 3) << 10) | ((pRgb[o * 3 + 1] >> 3) << 5) | (pRgb[o * 3 + 2] >> 3);
+                pRow[gx] = dwGui3DView_aQuantLut[c];
+            }
+        }
+    }
+    free(pRgb);
+}
+
 
 rdCanvas* dwGui3DView_BeginRender(int* pSaved)
 {
@@ -320,9 +412,19 @@ rdCanvas* dwGui3DView_BeginRender(int* pSaved)
     return pCanvas;
 }
 
+rdCanvas* dwGui3DView_BeginPickRender(int* pSaved)
+{
+    rdCanvas* pCanvas = dwGui3DView_BeginRender(pSaved);
+    if (*pSaved & DWGUI3DVIEW_RENDER_HW_BIT)
+        *pSaved |= DWGUI3DVIEW_RENDER_READBACK_BIT;
+    return pCanvas;
+}
+
 void dwGui3DView_EndRender(rdCanvas* pCanvas, int saved)
 {
-    if (saved & DWGUI3DVIEW_RENDER_HW_BIT)
+    if (saved & DWGUI3DVIEW_RENDER_READBACK_BIT)
+        dwGui3DView_EndHwRenderReadback(pCanvas, saved & 0xffff);
+    else if (saved & DWGUI3DVIEW_RENDER_HW_BIT)
         dwGui3DView_EndHwRender(pCanvas, saved & 0xffff);
     else
         dwGui3DView_EndSwRender(pCanvas, saved & 0xffff);

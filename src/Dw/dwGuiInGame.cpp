@@ -1474,7 +1474,7 @@ void dwGuiInGame::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
     }
 
     // Added: hardware (GL) path. DroidWorks runs with rdroid_bSoftwareRenderer forced on (the
-    // workshop views still rasterize in software); with dw_hwRender the MISSION view instead
+    // workshop views take their own GL bracket, dwGui3DView.cpp); with dw_hwRender the MISSION view
     // renders through std3D: the software flag is dropped for this draw so the bracket below
     // takes its GL branch, the HUD's viewport hole is cut to palette index 0 (the menu
     // shader's transparent index — DW's own dwColormap_transparentIdx is NOT 0) so the GL

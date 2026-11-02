@@ -913,10 +913,11 @@ int dwWorkshopDroidEditor::PaintPickedPart(dwPoint* pPt)
     rdSetGeometryMode(4);
     rdSetLightingMode(0);
     // Added: through the shared render bracket (the bare rdAdvanceFrame/rdFinishFrame pair
-    // took the GL path on SDL2 builds and never reached the 8bpp pick buffer).
+    // took the GL path on SDL2 builds and never reached the 8bpp pick buffer). The pick
+    // variant keeps the GL result readable from the 8-bit screen (sampled just below).
     {
         int pickSaved = 0;
-        rdCanvas* pPickCanvas = dwGui3DView_BeginRender(&pickSaved);
+        rdCanvas* pPickCanvas = dwGui3DView_BeginPickRender(&pickSaved);
         pPicked->UpdateTransform();
         dwGui3DView_EndRender(pPickCanvas, pickSaved);
     }
@@ -993,6 +994,18 @@ void dwWorkshopDroidEditor::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
             pNode->Draw(); // roots/detached only — Draw recurses attached children
     }
     dwGui3DView_EndRender(pSwCanvas, swSavedAccel);
+
+    // Added: the dragged part is drawn as a wireframe (SetDrawFlag2Rec), which std3D has no
+    // path for. With a hardware view, rasterize it in software on top of the composited view —
+    // it reads as an overlay over everything in the original too.
+    if ((swSavedAccel & DWGUI3DVIEW_RENDER_HW_BIT) && this->pDraggedNode != NULL)
+    {
+        int wireSaved = 0;
+        rdCanvas* pWireCanvas = dwGui3DView_BeginSwRender(&wireSaved);
+        rdSetGeometryMode(4);
+        this->pDraggedNode->Draw();
+        dwGui3DView_EndSwRender(pWireCanvas, wireSaved);
+    }
 
     // Which markers blink for the dragged part (0xb never matches anything real).
     mountCompatType = DW_PARTTYPE_NONE;

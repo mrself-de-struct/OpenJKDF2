@@ -125,19 +125,34 @@ struct dwGui3DView : dwWidget
 rdCanvas* dwGui3DView_BeginSwRender(int* pSavedAccel);
 void dwGui3DView_EndSwRender(rdCanvas* pSwCanvas, int savedAccel);
 
-// ---- Added: hardware (GL) bracket with readback, and the mode-selecting wrapper -----
+// ---- Added: hardware (GL) bracket, and the mode-selecting wrapper ------------------
 // With dw_hwRender (dwDisplay_bHwRender) the view renders through std3D into the GL
-// scene FBO (mapped from the 640x480 GUI space like the mission view), then End reads
-// the view's canvas rect back, box-filters it to one sample per GUI pixel, quantizes it
-// to rdColormap_pCurMap and writes it into the 8bpp canvas buffer where the software
-// rasterizer wrote — so draw order, dirty rects, the cursor and the pixel-sampling
-// features (part picking, paint) are unchanged. Views call BeginRender/EndRender, which
-// pick the HW or SW bracket (the choice is latched in *pSaved so a cvar flip between
-// Begin and End is safe).
+// scene FBO (mapped from the 640x480 GUI space like the mission view). End then
+// composites the view's canvas rect into std3D's persistent view layer — the droid over
+// the 8-bit GUI pixels that were under it — and punches the rect in the 8bpp canvas to
+// palette index 0, the menu shader's transparent index: the window present blits the
+// layer under the GUI, so the view shows at full window resolution and color while the
+// 8-bit draw order (markers, dialogs, the cursor over the view) and the dirty-rect
+// repaint model are unchanged. EndHwRenderReadback instead reads the rect back,
+// box-filters it to one sample per GUI pixel and quantizes it into the canvas (the
+// part-pick render, whose result is sampled from the 8-bit screen, and the fallback
+// when the layer is unavailable; DW_HW_READBACK=1 forces it everywhere).
+// Views call BeginRender/EndRender (BeginPickRender for the pick render), which pick the
+// HW or SW bracket (the choice is latched in *pSaved so a cvar flip between Begin and
+// End is safe). FillHolesFromLayer rewrites index-0 pixels of a screen copy from the
+// layer (quantized) — for the shaded screen snapshots behind the load/save and mission
+// sequence screens.
+// Set in *pSaved by BeginRender when the HW bracket was taken (callers can add SW-only
+// overlays, e.g. the editor's wireframe dragged part, after EndRender).
+#define DWGUI3DVIEW_RENDER_HW_BIT       0x10000
+#define DWGUI3DVIEW_RENDER_READBACK_BIT 0x20000
 rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw);
 void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw);
+void dwGui3DView_EndHwRenderReadback(rdCanvas* pCanvas, int savedSw);
 rdCanvas* dwGui3DView_BeginRender(int* pSaved);
+rdCanvas* dwGui3DView_BeginPickRender(int* pSaved);
 void dwGui3DView_EndRender(rdCanvas* pCanvas, int saved);
+void dwGui3DView_FillHolesFromLayer(uint8_t* pPixels, int stride, int w, int h);
 
 #endif // __cplusplus
 

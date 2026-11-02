@@ -58,6 +58,7 @@ extern "C" {
 #include "Engine/rdroid.h"
 #include "Engine/sithRender.h"
 }
+#include "Platform/std3D.h" // Added: std3D_DwClearViewLayer
 
 // Module globals (all reset in dwDisplay_Startup; soft-reset rule).
 void* dwDisplay_pEnv = NULL;
@@ -349,6 +350,7 @@ int dwDisplay_SetMode(int width, int height, int bpp)
         dwDisplay_pFrontVBuf = &Video_menuBuffer;
 
         stdDisplay_VBufferFill(dwDisplay_pBackVBuf, 0, NULL); // binary: DW-stdDisplay fill
+        std3D_DwClearViewLayer(); // Added: the GL view layer would show through the index-0 fill
         stdDisplay_DDrawGdiSurfaceFlip();                     // binary: DW-stdDisplay flip
 
         if (dwDisplay_pScreenImage)

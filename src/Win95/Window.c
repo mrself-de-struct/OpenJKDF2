@@ -1411,12 +1411,14 @@ void Window_SdlUpdate()
             int mouseX = 0, mouseY = 0;
             if (pMouse && displayWindow && sscanf(pMouse, "%d,%d", &mouseX, &mouseY) == 2)
                 SDL_WarpMouseInWindow(displayWindow, (float)mouseX, (float)mouseY);
-            // OPENJKDF2_AUTOSHOT_CLICK=x,y@ms[;x,y@ms...]: synthesized left clicks (warp, press,
-            // release) at window pixel x,y once that many ms have passed, in order. Lets a
-            // headless run exercise buttons before the screenshot.
+            // OPENJKDF2_AUTOSHOT_CLICK=x,y@ms[:k][;x,y@ms[:k]...]: synthesized left clicks (warp,
+            // press, release) at window pixel x,y once that many ms have passed, in order. Lets a
+            // headless run exercise buttons before the screenshot. An optional :k picks a part of
+            // the click — :d press only, :u release only, :m warp only — so a drag can be scripted.
             const char* pClick = getenv("OPENJKDF2_AUTOSHOT_CLICK");
             static int autoShot_clicksDone = 0;
             int clickX = 0, clickY = 0, clickMs = 0;
+            char clickKind = 0;
             const char* pClickSpec = pClick;
             for (int ci = 0; pClickSpec && ci < autoShot_clicksDone; ci++)
             {
@@ -1424,24 +1426,37 @@ void Window_SdlUpdate()
                 if (pClickSpec) pClickSpec++;
             }
             if (pClickSpec && *pClickSpec && displayWindow
-                && sscanf(pClickSpec, "%d,%d@%d", &clickX, &clickY, &clickMs) == 3
+                && sscanf(pClickSpec, "%d,%d@%d:%c", &clickX, &clickY, &clickMs, &clickKind) >= 3
                 && nowMs - autoShot_startMs > (uint32_t)clickMs)
             {
                 autoShot_clicksDone++;
                 SDL_WarpMouseInWindow(displayWindow, (float)clickX, (float)clickY);
                 SDL_Event ev;
                 memset(&ev, 0, sizeof(ev));
-                ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                ev.type = SDL_EVENT_MOUSE_MOTION;
+                ev.motion.windowID = SDL_GetWindowID(displayWindow);
+                ev.motion.x = (float)clickX;
+                ev.motion.y = (float)clickY;
+                ev.motion.state = (clickKind == 'u') ? SDL_BUTTON_LMASK : 0;
+                SDL_PushEvent(&ev);
+                memset(&ev, 0, sizeof(ev));
                 ev.button.windowID = SDL_GetWindowID(displayWindow);
                 ev.button.button = SDL_BUTTON_LEFT;
-                ev.button.down = true;
                 ev.button.clicks = 1;
                 ev.button.x = (float)clickX;
                 ev.button.y = (float)clickY;
-                SDL_PushEvent(&ev);
-                ev.type = SDL_EVENT_MOUSE_BUTTON_UP;
-                ev.button.down = false;
-                SDL_PushEvent(&ev);
+                if (clickKind != 'u' && clickKind != 'm')
+                {
+                    ev.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                    ev.button.down = true;
+                    SDL_PushEvent(&ev);
+                }
+                if (clickKind != 'd' && clickKind != 'm')
+                {
+                    ev.type = SDL_EVENT_MOUSE_BUTTON_UP;
+                    ev.button.down = false;
+                    SDL_PushEvent(&ev);
+                }
             }
             if (nowMs - autoShot_startMs > (uint32_t)atoi(pShotMs))
             {

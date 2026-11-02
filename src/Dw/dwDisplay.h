@@ -86,8 +86,9 @@ extern int dwDisplay_bHwRender;
 extern int dwDisplay_bHwScene;
 //   dwDisplay_bHwView   — nonzero inside a workshop/preview view's GL render bracket
 //     (dwGui3DView_BeginHwRender..EndHwRender): std3D maps the 640x480 GUI space the
-//     same way and lights with rdColormap_pCurMap; the view is then read back and
-//     quantized into the 8bpp canvas (see dwGui3DView.cpp).
+//     same way and lights with rdColormap_pCurMap; the view is then composited into
+//     std3D's persistent view layer, presented under the 8-bit GUI through an index-0
+//     hole (see dwGui3DView.cpp).
 extern int dwDisplay_bHwView;
 
 // Note: no binary counterpart — resets the module globals for OpenJKDF2's
