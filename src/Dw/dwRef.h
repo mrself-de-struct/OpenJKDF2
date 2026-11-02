@@ -92,11 +92,14 @@ struct dwRefGraph : dwWidgetGroup
     int32_t viewMode;     // 0x28: SetMode0(0)/SetMode1(1) via 0x1b62/0x1b63
     float config1;        // 0x2c: first GRAPH float param
     float config2;        // 0x30: second GRAPH float param
-    int16_t animOriginX;  // 0x34
-    int16_t curY;         // 0x36
-    int16_t curX;         // 0x38
-    int16_t targetY;      // 0x3a
-    float animTime;       // 0x3c
+    // 0x34..0x3a: a dwRect {left, top, right, bottom} — the REVEAL rect the bars and
+    // children are clipped to. It starts as {left, bottom, left, bottom} (nothing) and
+    // Update grows right/top toward the widget's right/top over one second.
+    int16_t animOriginX;  // 0x34: reveal.left  (= rect.left)
+    int16_t curY;         // 0x36: reveal.top   (eases bottom -> top)
+    int16_t curX;         // 0x38: reveal.right (eases left -> right)
+    int16_t targetY;      // 0x3a: reveal.bottom (= rect.bottom)
+    float animTime;       // 0x3c: seconds since the reveal started
     dwString soundName;   // 0x40: animation-tick loop wav
     uint8_t bDirtyX;      // 0x4c
     uint8_t bDirtyY;      // 0x4d
@@ -113,6 +116,11 @@ struct dwRefGraph : dwWidgetGroup
     virtual void Update(float dt);
     // vtbl +0x1c dwRefGraph_OnMessage — 0x1b62 SetMode0 / 0x1b63 SetMode1 (re-tick + redraw).
     virtual int OnMessage(dwWidgetMsg* pMsg);
+    // vtbl +0x44 (binary 0x416300, unnamed in the symbol map — it follows dwRefGraph_Update):
+    // the BAR CHART. A color-2 bar for the current topic (config1/config2 = its density /
+    // strength) at rect.left+10, then one 15 px bar per data point every 21 px in the three
+    // cycling colors, each clipped to the reveal rect; then the group's children.
+    virtual void Draw(dwImageBits* pDestBits, dwRect* pClipRect);
 
     // ---- non-virtual helpers ----
     void AddDataPoint(char* pName, float density, float strength);

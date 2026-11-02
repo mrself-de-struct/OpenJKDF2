@@ -93,9 +93,9 @@ dwRefGraph::dwRefGraph(dwRect* pRect, void* pScreen, float config1, float config
     , bDirtyX(0)
     , bDirtyY(0)
 {
-    // Initial eased-rect state seeded from the widget rect.
+    // The reveal rect starts empty at the bottom-left corner (binary: {left, bottom, left, bottom}).
     this->animOriginX = this->left;
-    this->curY = this->top;
+    this->curY = this->bottom;
     this->curX = this->left;
     this->targetY = this->bottom;
 
@@ -139,12 +139,9 @@ void dwRefGraph::AddDataPoint(char* pName, float density, float strength)
 
 // handled inline in the header (SetMode0/SetMode1).
 
-// dwRefGraph_Update — while enabled, ease the current rect toward the
-// target and loop a tick sound; then forward to the base group tick.
-// Note: the binary computed the per-frame eased delta with an x87 __ftol whose
-// float source the decompiler dropped; it is reconstructed here as a config1/
-// config2-scaled ramp of animTime (the two GRAPH float params are the axis
-// speeds). Cosmetic-only.
+// dwRefGraph_Update — while enabled, grow the reveal rect toward the widget rect over one
+// second (the x87 math: delta = __ftol(span * animTime), clamped to the span), toggling the
+// tick sound each frame while it moves and stopping it once it arrives; then the group tick.
 void dwRefGraph::Update(float dt)
 {
     if (this->bEnabled != 0)
@@ -154,17 +151,17 @@ void dwRefGraph::Update(float dt)
         {
             int spanX = (int16_t)(this->right - this->left);
             int spanY = (int16_t)(this->bottom - this->top);
-            int dx = (int)(this->animTime * this->config1);
-            int dy = (int)(this->animTime * this->config2);
-            if (spanX < dx) dx = spanX;
+            int dx = (int)((float)spanX * this->animTime);
+            int dy = (int)((float)spanY * this->animTime);
+            if ((uint16_t)dx > (uint16_t)spanX) dx = spanX;
             this->bDirtyX = 1;
-            if (spanY < dy) dy = spanY;
+            if ((uint16_t)dy > (uint16_t)spanY) dy = spanY;
             this->bDirtyY = 1;
 
-            if (dwSound_IsPlaying(this->soundName.pBuffer) == 0)
-                dwSound_PlayLooping(this->soundName.pBuffer);
-            else
+            if (dwSound_IsPlaying(this->soundName.pBuffer) != 0)
                 dwSound_Stop(this->soundName.pBuffer);
+            else
+                dwSound_PlayLooping(this->soundName.pBuffer);
 
             this->curX = (int16_t)(this->animOriginX + dx);
             this->curY = (int16_t)(this->targetY - dy);
@@ -179,6 +176,68 @@ void dwRefGraph::Update(float dt)
     dwWidgetGroup::Update(dt);
 }
 
+// Bar height rule shared by the current-topic bar and the data-point bars (binary
+// 0x416356 / 0x4164b0): the bar's top moves DOWN from the chart top by H / value, so a
+// bigger value makes a taller bar. Density: 0 -> flat, 1.0 -> 10, else H / (int)v.
+// Strength: 0 -> flat, 1.0 -> 10, v <= 200 -> H / (int)v + 100, else H / ((int)v / 100)
+// (10 when that rounds to nothing). (int)v == 0 would divide by zero in the original;
+// treated as 1 here.
+static int dwRefGraph_BarDrop(int mode, float v, int H)
+{
+    if (v == 0.0f) return 0;
+    if (v == 1.0f) return 10;
+    int iv = (int)v;
+    if (mode == 0)
+        return H / (iv ? iv : 1);
+    if (v <= 200.0f)
+        return H / (iv ? iv : 1) + 100;
+    int d = iv / 100;
+    int r = H / (d ? d : 1);
+    return (int16_t)r != 0 ? r : 10;
+}
+
+void dwRefGraph::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
+{
+    // Everything is clipped to the reveal rect (0x34..0x3a) so the chart wipes in.
+    dwRect reveal;
+    reveal.left = this->animOriginX; reveal.top = this->curY;
+    reveal.right = this->curX; reveal.bottom = this->targetY;
+    dwRect clip = *pClipRect;
+    dwRect_Clip(&clip, &reveal);
+
+    // The current topic's own bar: x = left+10..left+30, color 2.
+    dwRect bar;
+    bar.left = (int16_t)(this->left + 10);
+    bar.top = this->top;
+    bar.right = (int16_t)(this->left + 30);
+    bar.bottom = (int16_t)(this->bottom - 120);
+    int H = (int16_t)(bar.bottom - bar.top);
+    bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? this->config1 : this->config2, H));
+    dwImageDraw_FillRect(pDestBits, &bar, 2, &clip);
+
+    // One 15 px bar per data point, every 21 px from left+6, colors 0xe5 / 0xc1 / 0x20.
+    static const int aColor[3] = { 0xe5, 0xc1, 0x20 };
+    char state = 0;
+    bar.left = this->left;
+    bar.right = (int16_t)(this->left + 30);
+    dwListNode* pSent = this->pDataPoints.pSentinel;
+    for (dwListNode* pNode = pSent->pNext; pNode != pSent; pNode = pNode->pNext)
+    {
+        dwRefGraphPoint* pPt = (dwRefGraphPoint*)pNode->pData;
+        bar.left = (int16_t)(bar.left + 6);
+        bar.right = (int16_t)(bar.left + 15);
+        bar.top = this->top;
+        bar.bottom = (int16_t)(this->bottom - 120);
+        H = (int16_t)(bar.bottom - bar.top);
+        bar.top = (int16_t)(bar.top + dwRefGraph_BarDrop(this->viewMode, this->viewMode == 0 ? pPt->density : pPt->strength, H));
+        dwImageDraw_FillRect(pDestBits, &bar, aColor[(int)state], &clip);
+        state = (char)((state + 1) % 3);
+        bar.left = bar.right;
+    }
+
+    dwWidgetGroup::Draw(pDestBits, &clip);
+}
+
 // dwRefGraph_OnMessage — 0x1b62 SetMode0 / 0x1b63 SetMode1: re-seed
 // the eased rect from the widget rect, re-tick and invalidate.
 int dwRefGraph::OnMessage(dwWidgetMsg* pMsg)
@@ -190,8 +249,9 @@ int dwRefGraph::OnMessage(dwWidgetMsg* pMsg)
     else
         return 0;
 
-    this->curX = this->left;     // (undefined2)((int)this + 6) = rect.left
-    this->curY = (int16_t)this->config1; // (short)this[3]
+    // Restart the reveal: right back to left, top back to bottom.
+    this->curX = this->left;
+    this->curY = this->bottom;
     this->Update(0.0f);
     this->Invalidate();
     return 1;
