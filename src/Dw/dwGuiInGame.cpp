@@ -586,6 +586,14 @@ int dwGuiInGame::Activate()
                 sithRender_SetGeoMode(4);
                 sithRender_SetLightingMode(3);
                 sithRender_SetTexMode(1);
+                // Fixed: camera 7 stays the current camera from one mission to the next, so
+                // the switch inside ResetAllCameras skipped dwCamera_Reset and the follow
+                // camera kept its sector and position from the previous, already freed,
+                // world: heap-use-after-free in the collision sweep as the next mission
+                // started (crash on the second mission). Forget the old camera first so the
+                // reset re-seats it on the new world's player.
+                sithCamera_g_pCurCamera = NULL;
+                sithCamera_g_aCameras[7].sector = NULL;
                 sithCamera_ResetAllCameras();
                 RebuildViewport();
                 sithCamera_SetCurrentCamera(&sithCamera_g_aCameras[7]);
@@ -1649,7 +1657,9 @@ dwWidget* dwGuiInGame::CreateControl(char* pKeyword, dwConfFile* pConf)
     if (dwString_Equals(pKeyword, "HELP"))
     {
         dwRect r; r.left = r.top = r.right = r.bottom = 0;
-        return (dwWidget*)dwHelp_Ctor((dwHelp*)(*dwMain_pHS->alloc)(sizeof(dwHelp)), &r, 0, 0x6b); // sizeof, not 32-bit 0x5c
+        // Fixed: allocate with new like the other screens (dwGuiLoadSave/dwGuiStatus) — the
+        // widget group deletes its children (ASAN: alloc-dealloc-mismatch on screen teardown).
+        return (dwWidget*)new dwHelp(&r, NULL, 0x6b);
     }
     if (dwString_Equals(pKeyword, "HELPTEXT"))
     {
@@ -1907,7 +1917,9 @@ static void dwGuiInGame_HelpTextLayout(dwString* pText, dwFont* pFont, int width
         while (*q != '\0' && *q != '$')
             q++;
         int len = (int)(q - p);
-        dwGuiHypTextRun* pRun = (dwGuiHypTextRun*)_malloc(sizeof(dwGuiHypTextRun));
+        // Fixed: allocate with new like every other run node — dwGuiHypText_FreeRunNodes
+        // deletes them (ASAN: alloc-dealloc-mismatch when the mission screen is destroyed).
+        dwGuiHypTextRun* pRun = new dwGuiHypTextRun;
         pRun->startChar = 0;
         pRun->drawLen = 0;
         pRun->drawX = 0;

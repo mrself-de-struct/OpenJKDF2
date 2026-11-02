@@ -1411,17 +1411,23 @@ void Window_SdlUpdate()
             int mouseX = 0, mouseY = 0;
             if (pMouse && displayWindow && sscanf(pMouse, "%d,%d", &mouseX, &mouseY) == 2)
                 SDL_WarpMouseInWindow(displayWindow, (float)mouseX, (float)mouseY);
-            // OPENJKDF2_AUTOSHOT_CLICK=x,y@ms: one synthesized left click (warp, press, release)
-            // at window pixel x,y once that many ms have passed. Lets a headless run exercise
-            // a button before the screenshot.
+            // OPENJKDF2_AUTOSHOT_CLICK=x,y@ms[;x,y@ms...]: synthesized left clicks (warp, press,
+            // release) at window pixel x,y once that many ms have passed, in order. Lets a
+            // headless run exercise buttons before the screenshot.
             const char* pClick = getenv("OPENJKDF2_AUTOSHOT_CLICK");
-            static int autoShot_bClicked = 0;
+            static int autoShot_clicksDone = 0;
             int clickX = 0, clickY = 0, clickMs = 0;
-            if (pClick && !autoShot_bClicked && displayWindow
-                && sscanf(pClick, "%d,%d@%d", &clickX, &clickY, &clickMs) == 3
+            const char* pClickSpec = pClick;
+            for (int ci = 0; pClickSpec && ci < autoShot_clicksDone; ci++)
+            {
+                pClickSpec = strchr(pClickSpec, ';');
+                if (pClickSpec) pClickSpec++;
+            }
+            if (pClickSpec && *pClickSpec && displayWindow
+                && sscanf(pClickSpec, "%d,%d@%d", &clickX, &clickY, &clickMs) == 3
                 && nowMs - autoShot_startMs > (uint32_t)clickMs)
             {
-                autoShot_bClicked = 1;
+                autoShot_clicksDone++;
                 SDL_WarpMouseInWindow(displayWindow, (float)clickX, (float)clickY);
                 SDL_Event ev;
                 memset(&ev, 0, sizeof(ev));
