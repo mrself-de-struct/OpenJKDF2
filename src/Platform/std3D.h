@@ -140,6 +140,15 @@ void std3D_DrawUIClearedRect(uint8_t palIdx, rdRect* dstRect);
 void std3D_DrawUIClearedRectRGBA(uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, rdRect* dstRect);
 int std3D_IsReady();
 
+#ifdef PLATFORM_DROIDWORKS
+// Added: DroidWorks workshop readback. Reads the scene FBO region that the DW view rect
+// x,y,w,h (640x480 GUI space, mapped by the DW letterbox like the mission view) rendered
+// into, box-filtering to one sample per GUI pixel: pOutRgb gets w*h*3 bytes, pOutCover
+// gets w*h coverage bytes (0 = nothing was drawn there: depth still at the clear value).
+// Returns 0 when there is no scene FBO (headless, backend without one).
+int std3D_DwReadbackRect(int x, int y, int w, int h, uint8_t* pOutRgb, uint8_t* pOutCover);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

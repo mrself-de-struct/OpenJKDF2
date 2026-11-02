@@ -1,3 +1,4 @@
+#include <math.h> // Added: floor/ceil (std3D_DwReadbackRect)
 #include "Platform/std3D.h"
 
 #include "Raster/rdCache.h"
@@ -186,10 +187,15 @@ extern int jkGuiBuildMulti_bRendering;
 // scene FBO (see Dw/dwDisplay.h). The scene is presented under the 8-bit DW GUI, letterboxed
 // 4:3 exactly like the GUI's menu quad.
 extern int dwDisplay_bHwScene;
+extern int dwDisplay_bHwView;
 #define STD3D_DW_SCENE (dwDisplay_bHwScene)
+#define STD3D_DW_VIEW  (dwDisplay_bHwView)
 #else
 #define STD3D_DW_SCENE (0)
+#define STD3D_DW_VIEW  (0)
 #endif
+// The 640x480 DW canvas-space mapping applies to both (see std3D_DrawRenderList).
+#define STD3D_DW_MAP (STD3D_DW_SCENE || STD3D_DW_VIEW)
 
 int std3D_bInitted = 0;
 rdColormap std3D_ui_colormap;
@@ -818,7 +824,7 @@ int std3D_StartScene()
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
     
-    if (jkGuiBuildMulti_bRendering && rdColormap_pCurMap && loaded_colormap != rdColormap_pCurMap)
+    if ((jkGuiBuildMulti_bRendering || STD3D_DW_VIEW) && rdColormap_pCurMap && loaded_colormap != rdColormap_pCurMap) // Added: DW views light with the GUI colormap
     {
         glBindTexture(GL_TEXTURE_2D, worldpal_texture);
         memcpy(worldpal_data, rdColormap_pCurMap->colors, 0x300);
@@ -2649,8 +2655,9 @@ void std3D_DrawRenderList()
         zoom_yaspect = 1.0;
     }
 
-    if (STD3D_DW_SCENE) {
-        // Added: DroidWorks mission view. The DW canvas/camera project into the 640x480 GUI
+    if (STD3D_DW_MAP) {
+        // Added: DroidWorks mission view (and the workshop views, read back after). The DW
+        // canvas/camera project into the 640x480 GUI
         // space (the HUD viewport rect); map that space onto the scene FBO exactly as
         // std3D_DrawMenu letterboxes the 640x480 GUI (4:3, height-fit, centered), so the GL
         // world lands under the HUD's viewport hole at full resolution.
@@ -3719,6 +3726,84 @@ void std3D_ScreenshotWindow(const char* pFpath)
 #endif
 }
 #endif
+
+#ifdef PLATFORM_DROIDWORKS
+// Added: see std3D.h. Coverage comes from the depth buffer (cleared to 1.0 by StartScene):
+// a sample was drawn iff its depth moved. The color comes from tex0 (the lit base color the
+// scene present shows; emissive is not folded in).
+int std3D_DwReadbackRect(int x, int y, int w, int h, uint8_t* pOutRgb, uint8_t* pOutCover)
+{
+    if (Main_bHeadless || !has_initted || !std3D_pFb || w <= 0 || h <= 0) return 0;
+    int fbW = std3D_pFb->w, fbH = std3D_pFb->h;
+    if (fbW <= 0 || fbH <= 0) return 0;
+
+    // The DW mapping (std3D_DrawRenderList): 480 GUI rows span the FBO height, centered.
+    double s = (double)fbH / 480.0;
+    double offX = ((double)fbW - 640.0 * s) / 2.0;
+    int px0 = (int)floor(x * s + offX), py0 = (int)floor(y * s);
+    int px1 = (int)ceil((x + w) * s + offX), py1 = (int)ceil((y + h) * s);
+    if (px0 < 0) px0 = 0;
+    if (py0 < 0) py0 = 0;
+    if (px1 > fbW) px1 = fbW;
+    if (py1 > fbH) py1 = fbH;
+    int pw = px1 - px0, ph = py1 - py0;
+    if (pw <= 0 || ph <= 0) return 0;
+
+    uint8_t* pRgb = (uint8_t*)malloc((size_t)pw * ph * 3);
+    float* pDepth = (float*)malloc((size_t)pw * ph * sizeof(float));
+    if (!pRgb || !pDepth) { free(pRgb); free(pDepth); return 0; }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_pFb->fbo);
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    // GL rows run bottom-up: buffer row i is FBO (top-down) row py1-1-i.
+    glReadPixels(px0, fbH - py1, pw, ph, GL_RGB, GL_UNSIGNED_BYTE, pRgb);
+    glReadPixels(px0, fbH - py1, pw, ph, GL_DEPTH_COMPONENT, GL_FLOAT, pDepth);
+    glBindFramebuffer(GL_FRAMEBUFFER, std3D_pFb->fbo);
+
+    for (int gy = 0; gy < h; gy++)
+    {
+        int by0 = (int)floor((y + gy) * s) - py0;
+        int by1 = (int)floor((y + gy + 1) * s) - py0;
+        if (by1 <= by0) by1 = by0 + 1;
+        if (by0 < 0) by0 = 0;
+        if (by1 > ph) by1 = ph;
+        for (int gx = 0; gx < w; gx++)
+        {
+            int bx0 = (int)floor((x + gx) * s + offX) - px0;
+            int bx1 = (int)floor((x + gx + 1) * s + offX) - px0;
+            if (bx1 <= bx0) bx1 = bx0 + 1;
+            if (bx0 < 0) bx0 = 0;
+            if (bx1 > pw) bx1 = pw;
+            uint32_t sumR = 0, sumG = 0, sumB = 0, cnt = 0, total = 0;
+            for (int by = by0; by < by1; by++)
+            {
+                int row = ph - 1 - by;
+                for (int bx = bx0; bx < bx1; bx++)
+                {
+                    int idx = row * pw + bx;
+                    total++;
+                    if (pDepth[idx] < 1.0f)
+                    {
+                        sumR += pRgb[idx * 3 + 0];
+                        sumG += pRgb[idx * 3 + 1];
+                        sumB += pRgb[idx * 3 + 2];
+                        cnt++;
+                    }
+                }
+            }
+            int o = gy * w + gx;
+            pOutCover[o] = (uint8_t)(total ? (cnt * 255) / total : 0);
+            pOutRgb[o * 3 + 0] = (uint8_t)(cnt ? sumR / cnt : 0);
+            pOutRgb[o * 3 + 1] = (uint8_t)(cnt ? sumG / cnt : 0);
+            pOutRgb[o * 3 + 2] = (uint8_t)(cnt ? sumB / cnt : 0);
+        }
+    }
+    free(pRgb);
+    free(pDepth);
+    return 1;
+}
+#endif // PLATFORM_DROIDWORKS
 
 int std3D_HasAlpha()
 {

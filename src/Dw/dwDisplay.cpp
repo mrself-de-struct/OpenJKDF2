@@ -57,7 +57,6 @@ extern "C" {
 #include "Win95/stdDisplay.h"
 #include "Engine/rdroid.h"
 #include "Engine/sithRender.h"
-#include "Platform/std3D.h" // Added: std3D_ScreenshotWindow (autoshot hook)
 }
 
 // Module globals (all reset in dwDisplay_Startup; soft-reset rule).
@@ -73,6 +72,7 @@ tVBuffer* dwDisplay_pBackVBuf = NULL;      // binary: the unnamed tVBuffer
 tVBuffer* dwDisplay_pFrontVBuf = NULL;     // binary: the unnamed tVBuffer
 int dwDisplay_bHwRender = 1;               // Added: dw_hwRender cvar link (see dwDisplay.h)
 int dwDisplay_bHwScene = 0;                // Added: GL scene live in std3D's scene FBO
+int dwDisplay_bHwView = 0;                 // Added: inside a GL view render bracket (readback)
 
 // DW's 10-entry display gamma table (binary: DAT_00529fb8; verified
 // byte-identical to the engine's own table in src/Win95/Video.c).
@@ -108,6 +108,7 @@ void dwDisplay_Startup()
     dwDisplay_pBackVBuf = NULL;
     dwDisplay_pFrontVBuf = NULL;
     dwDisplay_bHwScene = 0; // Added (dwDisplay_bHwRender is a cvar link: not reset)
+    dwDisplay_bHwView = 0;  // Added
 
     dwDisplay_InitDirtyList();
 }
@@ -490,25 +491,5 @@ void dwDisplay_Present(void)
 #endif
 
     stdDisplay_DDrawGdiSurfaceFlip();
-
-    // Added: headless capture for renderer bring-up (same contract as jkGame_Update's hook):
-    // with OPENJKDF2_AUTOSHOT_MS set, screenshot the presented window once after that many
-    // ms (OPENJKDF2_AUTOSHOT_PATH, default dw_autoshot.png), then exit. No effect otherwise.
-    {
-        const char* pShotMs = getenv("OPENJKDF2_AUTOSHOT_MS");
-        if (pShotMs)
-        {
-            static uint32_t dwShot_startMs = 0;
-            uint32_t nowMs = stdPlatform_GetTimeMsec();
-            if (!dwShot_startMs)
-                dwShot_startMs = nowMs;
-            if (nowMs - dwShot_startMs > (uint32_t)atoi(pShotMs))
-            {
-                const char* pShotPath = getenv("OPENJKDF2_AUTOSHOT_PATH");
-                std3D_ScreenshotWindow(pShotPath ? pShotPath : "dw_autoshot.png");
-                stdPlatform_Printf("OPENJKDF2_AUTOSHOT: captured window screenshot, exiting\n");
-                exit(0);
-            }
-        }
-    } // Note: added — pushes the front buffer to the window (pumps SDL events)
+ // Note: added — pushes the front buffer to the window (pumps SDL events)
 }

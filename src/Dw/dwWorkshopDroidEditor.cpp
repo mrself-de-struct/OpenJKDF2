@@ -912,9 +912,14 @@ int dwWorkshopDroidEditor::PaintPickedPart(dwPoint* pPt)
     rdCamera_Update(&this->viewMat);
     rdSetGeometryMode(4);
     rdSetLightingMode(0);
-    rdAdvanceFrame();
-    pPicked->UpdateTransform();
-    rdFinishFrame();
+    // Added: through the shared render bracket (the bare rdAdvanceFrame/rdFinishFrame pair
+    // took the GL path on SDL2 builds and never reached the 8bpp pick buffer).
+    {
+        int pickSaved = 0;
+        rdCanvas* pPickCanvas = dwGui3DView_BeginRender(&pickSaved);
+        pPicked->UpdateTransform();
+        dwGui3DView_EndRender(pPickCanvas, pickSaved);
+    }
 
     color = 0;
     pPixels = NULL;
@@ -933,9 +938,12 @@ int dwWorkshopDroidEditor::PaintPickedPart(dwPoint* pPt)
         stdDisplay_VBufferFill(rdCamera_g_pCurCamera->pCanvas->d3d_vbuf, 0, NULL);
     rdSetGeometryMode(4);
     rdSetLightingMode(3);
-    rdAdvanceFrame();
-    pPicked->Draw();
-    rdFinishFrame();
+    {
+        int pickSaved = 0;
+        rdCanvas* pPickCanvas = dwGui3DView_BeginRender(&pickSaved); // Added: see above
+        pPicked->Draw();
+        dwGui3DView_EndRender(pPickCanvas, pickSaved);
+    }
 
     // Colors 0..4 are reserved (background/markers); anything else paints.
     if (color != 0 && color > 4)
@@ -972,7 +980,7 @@ void dwWorkshopDroidEditor::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
     // Added: software-renderer bracket (shared — dwGui3DView_BeginSwRender/
     // EndSwRender; the original inline version documented here is in dwGui3DView.cpp).
     int swSavedAccel = 0;
-    rdCanvas* pSwCanvas = dwGui3DView_BeginSwRender(&swSavedAccel);
+    rdCanvas* pSwCanvas = dwGui3DView_BeginRender(&swSavedAccel);
     rdSetGeometryMode(4);
 
     if (this->bInTrashZone != 0 && this->pDraggedNode != NULL && this->pTrashImage != NULL)
@@ -984,7 +992,7 @@ void dwWorkshopDroidEditor::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         if (pNode->partType == DW_PARTTYPE_NONE || pNode->pAttachSlot == NULL)
             pNode->Draw(); // roots/detached only — Draw recurses attached children
     }
-    dwGui3DView_EndSwRender(pSwCanvas, swSavedAccel);
+    dwGui3DView_EndRender(pSwCanvas, swSavedAccel);
 
     // Which markers blink for the dragged part (0xb never matches anything real).
     mountCompatType = DW_PARTTYPE_NONE;

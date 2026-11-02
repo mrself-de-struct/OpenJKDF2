@@ -196,7 +196,7 @@ void dwGuiQuickView::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
     // Added: software-renderer bracket (shared — without it the geometry takes
     // the GL path and the preview renders nothing).
     int swSavedAccel = 0;
-    rdCanvas* pSwCanvas = dwGui3DView_BeginSwRender(&swSavedAccel);
+    rdCanvas* pSwCanvas = dwGui3DView_BeginRender(&swSavedAccel);
     rdSetGeometryMode(4);
 
     // Own droid list, or the live workspace when ours is empty.
@@ -209,7 +209,7 @@ void dwGuiQuickView::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         if (pNode->partType == DW_PARTTYPE_NONE || pNode->pAttachSlot == NULL)
             pNode->Draw();
     }
-    dwGui3DView_EndSwRender(pSwCanvas, swSavedAccel);
+    dwGui3DView_EndRender(pSwCanvas, swSavedAccel);
 }
 
 // (Ghidra: dwGuiQuickView_LayoutNodes).

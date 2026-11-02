@@ -1393,6 +1393,34 @@ void Window_SdlUpdate()
     last_jkQuakeConsole_bOpen = jkQuakeConsole_bOpen;
 #endif
 
+    // Added: headless capture (same contract as jkGame_Update's software-renderer hook, but
+    // on the window present so it also covers DroidWorks and the menus): with
+    // OPENJKDF2_AUTOSHOT_MS set, screenshot the presented window once after that many ms
+    // (OPENJKDF2_AUTOSHOT_PATH, default autoshot.png), then exit. OPENJKDF2_AUTOSHOT_MOUSE=x,y
+    // parks the mouse there every present (the offscreen driver delivers no mouse input, and
+    // the DroidWorks cursor steers the droid). No effect when unset.
+    {
+        const char* pShotMs = getenv("OPENJKDF2_AUTOSHOT_MS");
+        if (pShotMs)
+        {
+            static uint32_t autoShot_startMs = 0;
+            uint32_t nowMs = stdPlatform_GetTimeMsec();
+            if (!autoShot_startMs)
+                autoShot_startMs = nowMs;
+            const char* pMouse = getenv("OPENJKDF2_AUTOSHOT_MOUSE");
+            int mouseX = 0, mouseY = 0;
+            if (pMouse && displayWindow && sscanf(pMouse, "%d,%d", &mouseX, &mouseY) == 2)
+                SDL_WarpMouseInWindow(displayWindow, (float)mouseX, (float)mouseY);
+            if (nowMs - autoShot_startMs > (uint32_t)atoi(pShotMs))
+            {
+                const char* pShotPath = getenv("OPENJKDF2_AUTOSHOT_PATH");
+                std3D_ScreenshotWindow(pShotPath ? pShotPath : "autoshot.png");
+                stdPlatform_Printf("OPENJKDF2_AUTOSHOT: captured window screenshot, exiting\n");
+                exit(0);
+            }
+        }
+    }
+
     Window_bInSdlUpdate = 0; // release the reentrancy guard
 }
 

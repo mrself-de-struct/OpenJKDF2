@@ -84,6 +84,11 @@ extern tVBuffer* dwDisplay_pFrontVBuf;
 //     pass maps the 640x480 DW canvas space onto the FBO's 4:3 letterbox.
 extern int dwDisplay_bHwRender;
 extern int dwDisplay_bHwScene;
+//   dwDisplay_bHwView   — nonzero inside a workshop/preview view's GL render bracket
+//     (dwGui3DView_BeginHwRender..EndHwRender): std3D maps the 640x480 GUI space the
+//     same way and lights with rdColormap_pCurMap; the view is then read back and
+//     quantized into the 8bpp canvas (see dwGui3DView.cpp).
+extern int dwDisplay_bHwView;
 
 // Note: no binary counterpart — resets the module globals for OpenJKDF2's
 // soft-reset loop and (re)creates the dirty list, which the binary built in a

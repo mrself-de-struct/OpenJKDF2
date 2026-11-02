@@ -893,6 +893,14 @@ static bool dw_Startup(void)
         }
         profiles.Free();
     }
+    else
+    {
+        // Added: DW_AUTO_WORKSHOP=<profile> (any value but "1") also restores that profile's
+        // built droid into the staged workshop (debug: exercises the workshop 3D views).
+        const char* pAutoWs = getenv("DW_AUTO_WORKSHOP");
+        if (pAutoWs && *pAutoWs && strcmp(pAutoWs, "1") != 0)
+            dwPlayer_LoadPlr(pAutoWs);
+    }
 
     dwSegment_RequestAdvance();
 

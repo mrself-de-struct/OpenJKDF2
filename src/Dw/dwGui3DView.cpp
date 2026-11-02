@@ -35,6 +35,9 @@ extern "C" {
 #include "Win95/stdDisplay.h"
 #ifdef RDRASTER_SW_ZBUFFER
 #include "Raster/rdZRaster.h" // SW z-buffer per-frame clear (shared bracket)
+#include "Platform/std3D.h"   // Added: std3D_DwReadbackRect (GL bracket)
+#include <stdio.h>             // Added: DW_READBACK_DUMP
+#include "stdPlatform.h"
 #endif
 }
 
@@ -186,6 +189,143 @@ void dwGui3DView_EndSwRender(rdCanvas* pSwCanvas, int savedAccel)
     rdFinishFrame();
     stdDisplay_VBufferUnlock(pSwCanvas->pVBuffer);
     rdroid_curAcceleration = savedAccel;
+}
+
+// ---- Added: hardware (GL) render bracket with readback (see the header note) ------
+
+// RGB555 -> nearest colormap index. Index 0 is never emitted: it is the menu overlay's
+// transparent index (the GL scene would show through such pixels in the mission HUD), and
+// DW reserves 0..4 for background/markers in the pick buffer anyway.
+static const rdColormap* dwGui3DView_pLutMap = NULL;
+static uint32_t dwGui3DView_lutMapSum = 0;
+static uint8_t dwGui3DView_aQuantLut[32768];
+
+static uint32_t dwGui3DView_ColormapSum(const rdColormap* pMap)
+{
+    uint32_t sum = 0;
+    for (int i = 0; i < 256; i++)
+        sum = sum * 31 + pMap->colors[i].r * 65536 + pMap->colors[i].g * 256 + pMap->colors[i].b;
+    return sum;
+}
+
+static void dwGui3DView_EnsureQuantLut(const rdColormap* pMap)
+{
+    uint32_t sum = dwGui3DView_ColormapSum(pMap);
+    if (pMap == dwGui3DView_pLutMap && sum == dwGui3DView_lutMapSum)
+        return;
+    for (int c = 0; c < 32768; c++)
+    {
+        int r = (((c >> 10) & 31) * 255) / 31;
+        int g = (((c >> 5) & 31) * 255) / 31;
+        int b = ((c & 31) * 255) / 31;
+        int best = 1, bestD = 0x7fffffff;
+        for (int i = 1; i < 256; i++)
+        {
+            int dr = r - pMap->colors[i].r, dg = g - pMap->colors[i].g, db = b - pMap->colors[i].b;
+            int d = dr * dr + dg * dg + db * db;
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        dwGui3DView_aQuantLut[c] = (uint8_t)best;
+    }
+    dwGui3DView_pLutMap = pMap;
+    dwGui3DView_lutMapSum = sum;
+}
+
+rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw)
+{
+    rdCanvas* pCanvas = rdCamera_g_pCurCamera->pCanvas;
+    *pSavedSw = rdroid_bSoftwareRenderer;
+    rdroid_bSoftwareRenderer = 0; // rdCache_Flush takes the std3D path (DW forces SW otherwise)
+    dwDisplay_bHwView = 1;        // std3D: DW 640x480 mapping + light with rdColormap_pCurMap
+    rdAdvanceFrame();             // std3D_StartScene: clears the scene FBO (color + depth)
+    return pCanvas;
+}
+
+void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw)
+{
+    rdFinishFrame();              // flushes the render list into the scene FBO
+
+    int x = pCanvas->xStart, y = pCanvas->yStart;
+    int w = pCanvas->widthMinusOne - x + 1, h = pCanvas->heightMinusOne - y + 1;
+    tVBuffer* pVBuf = pCanvas->pVBuffer;
+    const rdColormap* pMap = rdColormap_pCurMap;
+    if (pVBuf && pMap && w > 0 && h > 0 && x >= 0 && y >= 0
+        && x + w <= (int)pVBuf->format.width && y + h <= (int)pVBuf->format.height)
+    {
+        uint8_t* pRgb = (uint8_t*)malloc((size_t)w * h * 3);
+        uint8_t* pCov = (uint8_t*)malloc((size_t)w * h);
+        if (pRgb && pCov && std3D_DwReadbackRect(x, y, w, h, pRgb, pCov))
+        {
+            // Added: DW_READBACK_DUMP=<file.ppm> writes the raw readback of the LARGEST view
+            // rendered so far (debug: separates GL output from the palette quantization).
+            {
+                static int dumpMaxArea = 0;
+                const char* pDump = getenv("DW_READBACK_DUMP");
+                if (pDump && w * h > dumpMaxArea)
+                {
+                    dumpMaxArea = w * h;
+                    FILE* f = fopen(pDump, "wb");
+                    if (f)
+                    {
+                        fprintf(f, "P6\n%d %d\n255\n", w, h);
+                        fwrite(pRgb, 1, (size_t)w * h * 3, f);
+                        fclose(f);
+                    }
+                    stdPlatform_Printf("DWRB: dumped %dx%d at (%d,%d); colormap %p colors[20]=%d,%d,%d lightlevel=%p\n",
+                        w, h, x, y, (void*)pMap, pMap->colors[20].r, pMap->colors[20].g, pMap->colors[20].b, (void*)pMap->lightlevel);
+                }
+            }
+            dwGui3DView_EnsureQuantLut(pMap);
+            stdDisplay_VBufferLock(pVBuf);
+            uint8_t* pPix = (uint8_t*)pVBuf->surface_lock_alloc;
+            if (pPix)
+            {
+                int stride = pVBuf->format.rowSize;
+                for (int gy = 0; gy < h; gy++)
+                {
+                    uint8_t* pRow = pPix + (size_t)(y + gy) * stride + x;
+                    for (int gx = 0; gx < w; gx++)
+                    {
+                        int o = gy * w + gx;
+                        if (!pCov[o]) continue; // nothing drawn: keep the GUI underneath
+                        int c = ((pRgb[o * 3 + 0] >> 3) << 10) | ((pRgb[o * 3 + 1] >> 3) << 5) | (pRgb[o * 3 + 2] >> 3);
+                        pRow[gx] = dwGui3DView_aQuantLut[c];
+                    }
+                }
+            }
+            stdDisplay_VBufferUnlock(pVBuf);
+        }
+        free(pRgb);
+        free(pCov);
+    }
+
+    dwDisplay_bHwView = 0;
+    rdroid_bSoftwareRenderer = savedSw;
+}
+
+#define DWGUI3DVIEW_RENDER_HW_BIT 0x10000
+
+rdCanvas* dwGui3DView_BeginRender(int* pSaved)
+{
+    if (dwDisplay_bHwRender)
+    {
+        int savedSw = 0;
+        rdCanvas* pCanvas = dwGui3DView_BeginHwRender(&savedSw);
+        *pSaved = (savedSw & 0xffff) | DWGUI3DVIEW_RENDER_HW_BIT;
+        return pCanvas;
+    }
+    int savedAccel = 0;
+    rdCanvas* pCanvas = dwGui3DView_BeginSwRender(&savedAccel);
+    *pSaved = savedAccel & 0xffff;
+    return pCanvas;
+}
+
+void dwGui3DView_EndRender(rdCanvas* pCanvas, int saved)
+{
+    if (saved & DWGUI3DVIEW_RENDER_HW_BIT)
+        dwGui3DView_EndHwRender(pCanvas, saved & 0xffff);
+    else
+        dwGui3DView_EndSwRender(pCanvas, saved & 0xffff);
 }
 
 // (Ghidra: dwGui3DView_RebuildLights) — vtbl +0x48 (NEW virtual).

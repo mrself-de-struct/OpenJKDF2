@@ -271,7 +271,7 @@ void dwDroidView::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
     // Added: software-renderer bracket (shared — without it the geometry takes
     // the GL path and the orbit view renders nothing).
     int swSavedAccel = 0;
-    rdCanvas* pSwCanvas = dwGui3DView_BeginSwRender(&swSavedAccel);
+    rdCanvas* pSwCanvas = dwGui3DView_BeginRender(&swSavedAccel);
     rdSetLightingMode(0);
     rdSetGeometryMode(3);
 
@@ -282,7 +282,7 @@ void dwDroidView::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         if (pNode->partType == DW_PARTTYPE_NONE || pNode->pAttachSlot == NULL)
             pNode->DrawHighlighted();
     }
-    dwGui3DView_EndSwRender(pSwCanvas, swSavedAccel);
+    dwGui3DView_EndRender(pSwCanvas, swSavedAccel);
 
     // Green pick-selection frame around the last picked point.
     dwRect pickRect;

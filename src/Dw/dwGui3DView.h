@@ -125,6 +125,20 @@ struct dwGui3DView : dwWidget
 rdCanvas* dwGui3DView_BeginSwRender(int* pSavedAccel);
 void dwGui3DView_EndSwRender(rdCanvas* pSwCanvas, int savedAccel);
 
+// ---- Added: hardware (GL) bracket with readback, and the mode-selecting wrapper -----
+// With dw_hwRender (dwDisplay_bHwRender) the view renders through std3D into the GL
+// scene FBO (mapped from the 640x480 GUI space like the mission view), then End reads
+// the view's canvas rect back, box-filters it to one sample per GUI pixel, quantizes it
+// to rdColormap_pCurMap and writes it into the 8bpp canvas buffer where the software
+// rasterizer wrote — so draw order, dirty rects, the cursor and the pixel-sampling
+// features (part picking, paint) are unchanged. Views call BeginRender/EndRender, which
+// pick the HW or SW bracket (the choice is latched in *pSaved so a cvar flip between
+// Begin and End is safe).
+rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw);
+void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw);
+rdCanvas* dwGui3DView_BeginRender(int* pSaved);
+void dwGui3DView_EndRender(rdCanvas* pCanvas, int saved);
+
 #endif // __cplusplus
 
 #endif // _DWGUI3DVIEW_H

@@ -551,7 +551,11 @@ int rdCache_SendFaceListToHardware()
             }
 
             // Look for the closest mipmap that's been loaded
-#ifdef TARGET_RETRO_HOMEBREW
+            // Added: on every target, not only retro homebrew — a material whose selected
+            // mip level has no VBuffer (DroidWorks part textures carry fewer mips than the
+            // distance-based level picks) otherwise reaches std3D_AddToTextureCache with a
+            // NULL mipmap, which "succeeds" without a texture and the face draws untextured.
+#if 1
             int mipmap_level_orig = mipmap_level;
             tVBuffer* mipmap = sith_tex_sel->texture_struct[mipmap_level];
 
