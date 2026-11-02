@@ -1436,6 +1436,13 @@ void Window_SdlVblank()
 {
     if (Main_bHeadless) return;
 
+    // Added: DroidWorks presents only through dwDisplay_Present (-> Window_SdlUpdate, which
+    // composites and swaps). rdFinishFrame's vblank wait lands here BEFORE the HUD is drawn
+    // and the frame is composited, so the bare swap below pushed a stale (or, after the GL
+    // world moved into the scene FBO, undefined/black) window buffer to the screen once per
+    // frame: the "flickering 3D view". Same hazard jkGUIMap.c avoids by not waiting for vblank.
+    if (Main_bDroidWorks) return;
+
     //static uint32_t roundtrip = 0;
     //uint32_t before = stdPlatform_GetTimeMsec();
     jkGame_ScreenshotFlush(); // Added: F12 shots capture the finished frame
