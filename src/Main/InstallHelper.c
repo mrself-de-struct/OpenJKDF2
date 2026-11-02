@@ -1331,7 +1331,9 @@ void InstallHelper_SetCwd()
         //SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "OpenJKDF2 could not find any game assets (`resource/jk_.cd` is missing). Would you like to install assets now?", NULL);
         InstallHelper_AttemptInstall();
     }*/
-    if (!util_FileExists("resource/jk_.cd")) {
+    // Added: DroidWorks (-droidworks) runs from its own install (dwCD.gob & co., no
+    // resource/jk_.cd), so the Jedi Knight asset check/installer must not run there.
+    if (!Main_bDroidWorks && !util_FileExists("resource/jk_.cd")) {
         InstallHelper_CheckRequiredAssets(1);
     }
 

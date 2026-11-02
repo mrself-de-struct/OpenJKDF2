@@ -404,6 +404,14 @@ int Window_menu_mouseX = 0;
 int Window_menu_mouseY = 0;
 
 extern int jkGuiBuildMulti_bRendering;
+#ifdef PLATFORM_DROIDWORKS
+// Added: DroidWorks hardware path — while the mission's GL scene is live, the present must not
+// std3D_StartScene (it clears the scene FBO); std3D_DrawMenu composites the scene + GUI.
+extern int dwDisplay_bHwScene;
+#define WINDOW_DW_SCENE (dwDisplay_bHwScene)
+#else
+#define WINDOW_DW_SCENE (0)
+#endif
 
 // map raw SDL window coords into the letterboxed 640x480 canvas.
 // The same 4:3 pillarbox math the GL present side uses (std3D_DrawMenu)
@@ -734,7 +742,7 @@ void Window_UpdateHeadless()
     if (!jkGame_isDDraw)
     {
 
-        if (!jkGuiBuildMulti_bRendering) {
+        if (!jkGuiBuildMulti_bRendering && !WINDOW_DW_SCENE) { // Added: DW GL scene
             std3D_StartScene();
 #ifdef QUAKE_CONSOLE
             jkQuakeConsole_Render();
@@ -1302,7 +1310,7 @@ void Window_SdlUpdate()
 
         SDL_SetWindowRelativeMouseMode(displayWindow, false);
 
-        if (!jkGuiBuildMulti_bRendering) {
+        if (!jkGuiBuildMulti_bRendering && !WINDOW_DW_SCENE) { // Added: DW GL scene
             std3D_StartScene();
 #ifdef QUAKE_CONSOLE
             jkQuakeConsole_Render();
@@ -1635,6 +1643,18 @@ int Window_Main_Linux(int argc, char** argv)
 #endif
 
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
+
+    // Added: OPENJKDF2_WINDOW_SIZE=WxH — initial windowed size override (headless/offscreen
+    // test runs, where no saved window geometry applies). No effect when unset.
+    {
+        const char* pWinSize = getenv("OPENJKDF2_WINDOW_SIZE");
+        int envW = 0, envH = 0;
+        if (pWinSize && sscanf(pWinSize, "%dx%d", &envW, &envH) == 2 && envW >= 640 && envH >= 480)
+        {
+            Window_screenXSize = Window_xSize = envW;
+            Window_screenYSize = Window_ySize = envH;
+        }
+    }
 
     
     if ((SDL_GetHintBoolean("SteamClientLaunch", 0) || SDL_GetHintBoolean("SteamOS", 0) || SDL_GetHintBoolean("SteamDeck", 0)) && SDL_GetHintBoolean("SteamGamepadUI", 0)) {

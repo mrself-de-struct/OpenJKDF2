@@ -72,6 +72,19 @@ extern dwDirtyRect* dwDisplay_pDirtyList;
 extern tVBuffer* dwDisplay_pBackVBuf;
 extern tVBuffer* dwDisplay_pFrontVBuf;
 
+// Added: hardware (OpenGL, std3D) rendering of the DW 3D views.
+//   dwDisplay_bHwRender — the dw_hwRender cvar link (1 = the mission view renders
+//     through std3D into the GL scene FBO; 0 = the original software rasterizer,
+//     the binary's SW path). Default 1.
+//   dwDisplay_bHwScene  — nonzero while a GL-rendered scene is live in std3D's
+//     scene FBO (set by dwGuiInGame::Draw, cleared on Deactivate). The window
+//     present then composites the scene UNDER the 8-bit GUI (std3D_DrawSceneFbo +
+//     the letterboxed menu quad) instead of clearing it: Window_SdlUpdate skips
+//     std3D_StartScene/EndScene, std3D_DrawSceneFbo presents, and the std3D world
+//     pass maps the 640x480 DW canvas space onto the FBO's 4:3 letterbox.
+extern int dwDisplay_bHwRender;
+extern int dwDisplay_bHwScene;
+
 // Note: no binary counterpart — resets the module globals for OpenJKDF2's
 // soft-reset loop and (re)creates the dirty list, which the binary built in a
 // CRT static ctor (dwDisplay_StaticInit) and freed atexit.

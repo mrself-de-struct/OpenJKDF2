@@ -34,6 +34,7 @@
 #include "Gui/jkGUIMods.h"
 #include "World/jkPlayer.h"
 #include "Dw/dwMain.h" // Added: DroidWorks app layer
+#include "Dw/dwDisplay.h" // Added: dwDisplay_bHwRender (dw_hwRender cvar)
 #include "Gameplay/jkSaber.h"
 #include "Win95/std.h"
 #include "Win95/stdDisplay.h"
@@ -430,6 +431,10 @@ int Main_Startup(const char *cmdline)
     if (Main_bDroidWorks) {
         Windows_Startup();
         sithCvar_Startup();
+        // Added: dw_hwRender — the mission view renders through std3D (GL); 0 = the
+        // software rasterizer. Saved with the global cvars (openjkdf2_cvars.json).
+        sithCvar_RegisterBool("dw_hwRender", 1, &dwDisplay_bHwRender, CVARFLAG_GLOBAL);
+        sithCvar_LoadGlobals(); // Added: pick up the saved value (Startup loaded before registration)
         if (!Windows_InitWindow())
             return 0;
         rdStartup(&hs);

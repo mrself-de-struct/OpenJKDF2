@@ -777,6 +777,7 @@ int dwGuiInGame::Activate()
 
 void dwGuiInGame::Deactivate()
 {
+    dwDisplay_bHwScene = 0; // Added: the GL scene FBO is stale from here on (see dwDisplay.h)
     if (this->deathFadeHandle >= 0)
     {
         stdPalEffects_FreeRequest(this->deathFadeHandle);
@@ -1460,6 +1461,22 @@ void dwGuiInGame::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         dwImageDraw_FillRect(pDestBits, &r, dwColormap_transparentIdx, pClipRect);
     }
 
+    // Added: hardware (GL) path. DroidWorks runs with rdroid_bSoftwareRenderer forced on (the
+    // workshop views still rasterize in software); with dw_hwRender the MISSION view instead
+    // renders through std3D: the software flag is dropped for this draw so the bracket below
+    // takes its GL branch, the HUD's viewport hole is cut to palette index 0 (the menu
+    // shader's transparent index — DW's own dwColormap_transparentIdx is NOT 0) so the GL
+    // scene shows through the 8-bit GUI, and dwDisplay_bHwScene makes the window present
+    // composite std3D's scene FBO under the GUI instead of clearing it (see dwDisplay.h).
+    int dwhw_bActive = dwDisplay_bHwRender;
+    int dwhw_savedSw = rdroid_bSoftwareRenderer;
+    if (dwhw_bActive)
+    {
+        rdroid_bSoftwareRenderer = 0;
+        dwImageDraw_FillRect(pDestBits, &this->insetRect, 0, pClipRect);
+        dwDisplay_bHwScene = 1;
+    }
+
     rdAdvanceFrame();
 #ifdef RDRASTER_SOFTWARE_RENDERER
     // Added: render the world 3D through the software (CPU) rasterizer when the r_softwareRenderer
@@ -1539,6 +1556,7 @@ void dwGuiInGame::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         rdroid_curAcceleration = rdsw_savedAccel;
     }
 #endif
+    rdroid_bSoftwareRenderer = dwhw_savedSw; // Added: restore the DW-wide software flag
 
     dwRect clip = *pClipRect;
     dwRect_Union(&clip, &this->viewRect);

@@ -181,6 +181,15 @@ GLuint menu_vbo_all;
 GLuint menu_ibo_triangle;
 
 extern int jkGuiBuildMulti_bRendering;
+#ifdef PLATFORM_DROIDWORKS
+// Added: DroidWorks hardware path — nonzero while the mission view's GL scene is live in the
+// scene FBO (see Dw/dwDisplay.h). The scene is presented under the 8-bit DW GUI, letterboxed
+// 4:3 exactly like the GUI's menu quad.
+extern int dwDisplay_bHwScene;
+#define STD3D_DW_SCENE (dwDisplay_bHwScene)
+#else
+#define STD3D_DW_SCENE (0)
+#endif
 
 int std3D_bInitted = 0;
 rdColormap std3D_ui_colormap;
@@ -2396,7 +2405,7 @@ void std3D_DrawSceneFbo()
         draw_ssao = 0;
     }
 
-    if (!jkGame_isDDraw && !jkGuiBuildMulti_bRendering)
+    if (!jkGame_isDDraw && !jkGuiBuildMulti_bRendering && !STD3D_DW_SCENE) // Added: DW GL scene
     {
         return;
     }
@@ -2638,6 +2647,25 @@ void std3D_DrawRenderList()
         shift_add_x = (((1.0 - ((menu_x * zoom_xaspect) / std3D_pFb->w)) + 0.15) * zoom_xaspect);
         shift_add_y = -0.5;
         zoom_yaspect = 1.0;
+    }
+
+    if (STD3D_DW_SCENE) {
+        // Added: DroidWorks mission view. The DW canvas/camera project into the 640x480 GUI
+        // space (the HUD viewport rect); map that space onto the scene FBO exactly as
+        // std3D_DrawMenu letterboxes the 640x480 GUI (4:3, height-fit, centered), so the GL
+        // world lands under the HUD's viewport hole at full resolution.
+        width = std3D_pFb->w;
+        height = std3D_pFb->h;
+        // Height-fit: 480 logical rows span the FBO height, so the logical width that spans
+        // the FBO is 480 * aspect (640 at 4:3; wider windows add letterbox on both sides).
+        internalHeight = 480.0;
+        internalWidth = 480.0 * ((double)width / (double)height);
+        scaleX = 1.0 / ((double)internalWidth / 2.0);
+        scaleY = 1.0 / ((double)internalHeight / 2.0);
+        zoom_xaspect = 1.0;
+        zoom_yaspect = 1.0;
+        shift_add_x = (float)(1.0 - 640.0 / internalWidth);
+        shift_add_y = 0.0;
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, world_vbo_all);
