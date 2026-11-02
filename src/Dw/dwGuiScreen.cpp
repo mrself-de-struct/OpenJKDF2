@@ -45,7 +45,7 @@
 #include "Dw/dwMission.h"     // dwMissionSequence (msg 0x66)
 #include "Dw/dwGuiOptions.h"  // dwGuiRanking (STATS_JOB) + dwGuiOptions_NewEnterSeg (msg 0x65)
 #include "Dw/dwGuiQuickView.h" // dwGuiQuickView (QUICKVIEW)
-#include "Dw/dwGui3DView.h"    // Added: dwGui3DView_FillHolesFromLayer (snapshots)
+#include "Platform/std3D.h"    // Added: std3D_DwClearViewRef (hardware views)
 #include "Dw/dwGuiStatsPart.h"  // dwGuiStatsPart (STATS_PART)
 #include "Dw/dwGuiStatsDroid.h" // dwGuiStatsDroid (STATS_DROID)
 #include "Dw/dwGuiInGame.h"    // dwGuiInGame_New/CheckDroidValid (msg 0x67 deploy)
@@ -134,10 +134,6 @@ dwImage* dwGuiScreen_CaptureShadedScreen()
         bits.pDesc = &pSnap->desc;      // binary: obj-as-desc alias
         bits.pPixels = pPixels;
         bits.stride = stride;
-        // Added: with hardware views the screen's view rects are index-0 holes over the GL
-        // view layer — fill them from the layer so the shaded snapshot shows the droid.
-        if (pPixels)
-            dwGui3DView_FillHolesFromLayer((uint8_t*)pPixels, stride, rect.right, rect.bottom);
         dwImageDraw_ShadeRect(&bits, &rect, 0x3c); // 60%
         pSnap->Unlock(); // vtbl +0x10
     }
@@ -1238,6 +1234,10 @@ int dwGuiScreen::Activate()
 
     if (this->musicName.length != 0)
         dwSound_SetMusic(this->musicName.pBuffer, 1);
+
+    // Added: hardware views — the GL view layer's reference mask belongs to the previous
+    // screen; drop it so nothing of the layer shows until this screen's views composite.
+    std3D_DwClearViewRef();
 
     this->Invalidate(); // virtual +0x34 (full-screen dirty rect)
     this->lastTickSec = 0.0f;

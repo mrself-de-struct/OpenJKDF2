@@ -127,6 +127,7 @@ extern float jkSaber_rgbBlue;
 
 GLint programMenu_attribute_coord3d, programMenu_attribute_v_color, programMenu_attribute_v_uv, programMenu_attribute_v_norm;
 GLint programMenu_uniform_mvp, programMenu_uniform_tex, programMenu_uniform_displayPalette;
+GLint programMenu_uniform_refTex = -1, programMenu_uniform_useRef = -1; // Added: DW view reference mask
 
 std3DSimpleTexStage std3D_uiProgram;
 std3DSimpleTexStage std3D_texFboStage;
@@ -192,6 +193,7 @@ extern int dwDisplay_bHwView;
 #define STD3D_DW_VIEW  (dwDisplay_bHwView)
 static void std3D_DwPresentViewLayer(void); // the workshop view layer (end of file)
 static void std3D_DwFreeViewLayer(void);
+static int std3D_DwBindViewRef(void);
 #else
 #define STD3D_DW_SCENE (0)
 #define STD3D_DW_VIEW  (0)
@@ -554,6 +556,8 @@ int init_resources()
     programMenu_uniform_mvp = std3D_tryFindUniform(programMenu, "mvp");
     programMenu_uniform_tex = std3D_tryFindUniform(programMenu, "tex");
     programMenu_uniform_displayPalette = std3D_tryFindUniform(programMenu, "displayPalette");
+    programMenu_uniform_refTex = std3D_tryFindUniform(programMenu, "refTex");
+    programMenu_uniform_useRef = std3D_tryFindUniform(programMenu, "useRef");
     
     // Blank texture
     glGenTextures(1, &blank_tex);
@@ -1518,6 +1522,9 @@ void std3D_DrawMenu()
     glActiveTexture(GL_TEXTURE0 + 0);
     glUniform1i(programMenu_uniform_tex, 0);
     glUniform1i(programMenu_uniform_displayPalette, 1);
+#ifdef PLATFORM_DROIDWORKS
+    int dwUseRef = std3D_DwBindViewRef(); // Added: DW view reference mask (unit 2)
+#endif
 
     D3DVERTEX* vertexes = GL_tmpVertices;
 
@@ -1604,6 +1611,9 @@ void std3D_DrawMenu()
     // Perf: draw the count just uploaded. Asking GL for the buffer's size makes the
     // CPU wait for the GPU, every frame.
     glDrawElements(GL_TRIANGLES, (GLsizei)(GL_tmpTrisAmt * 3), GL_UNSIGNED_SHORT, 0);
+#ifdef PLATFORM_DROIDWORKS
+    if (dwUseRef) glUniform1i(programMenu_uniform_useRef, 0); // Added
+#endif
 
     glDisableVertexAttribArray(programMenu_attribute_v_uv);
     glDisableVertexAttribArray(programMenu_attribute_v_color);
@@ -3850,19 +3860,20 @@ int std3D_DwReadbackRect(int x, int y, int w, int h, uint8_t* pOutRgb, uint8_t* 
 // ---- Added: DroidWorks direct (no readback) workshop views — the persistent view layer ----
 // A GL-rendered view is composited per view rect (the droid over the 8-bit GUI backdrop that
 // was under it) into a scene-FBO-sized layer FBO that survives the per-present scene clears.
-// The present blits the layer under the GUI's menu quad, and the view's canvas rect is punched
-// to palette index 0 (the menu shader's transparent index) so the layer shows through there,
-// while widgets drawn after the view (markers, dialogs, the cursor) still cover it in 8-bit
-// draw order. The layer is never cleared on screen changes: only index-0 GUI pixels reveal
-// it, and a stale view region there is exactly what a shaded screen snapshot (dwGuiScreen_
-// CaptureShadedScreen) wants to show. See Dw/dwGui3DView.cpp.
+// The present blits the layer under the GUI's menu quad; the 8-bit GUI keeps the view's
+// quantized pixels (the readback path) and the same pixels go into the reference mask
+// (std3D_DwSetViewRef): the menu shader discards a GUI pixel that still equals its reference,
+// revealing the layer, while anything drawn over the view since (markers, dialogs, tints,
+// dimmed icons) differs and is drawn as usual. The layer is never cleared on screen changes
+// (the mask is, in dwGuiScreen::Activate), so it is only ever visible under fresh
+// composites. See Dw/dwGui3DView.cpp.
 static std3DIntermediateFbo std3D_dwViewLayer;
 static int std3D_dwViewLayerValid = 0;
 
 // GUI rect (640x480 space) -> scene FBO pixel rect, with the DW letterbox mapping of
 // std3D_DrawRenderList. Rounded to the pixels whose centers fall inside the rect: that is
 // the set the rasterizer fills for a quad at the exact fractional bounds, and the set the
-// present's nearest-sampled menu quad maps onto these GUI pixels — so the punched hole and
+// present's nearest-sampled menu quad maps onto these GUI pixels — so the masked pixels and
 // the layer pixels line up exactly.
 static int std3D_DwViewRectToFb(int x, int y, int w, int h, int fbW, int fbH, int* pX0, int* pY0, int* pX1, int* pY1)
 {
@@ -3904,20 +3915,96 @@ void std3D_DwClearViewLayer()
     glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
 }
 
+static GLuint std3D_dwRefTex = 0;
+static int std3D_dwRefTexW = 0, std3D_dwRefTexH = 0;
+static uint8_t* std3D_dwRef = NULL;   // CPU copy, tightly packed, GUI buffer dims
+static int std3D_dwRefW = 0, std3D_dwRefH = 0;
+static int std3D_dwRefDirty = 0;
+
 static void std3D_DwFreeViewLayer()
 {
     if (std3D_dwViewLayer.fbo)
         std3D_deleteIntermediateFbo(&std3D_dwViewLayer);
     memset(&std3D_dwViewLayer, 0, sizeof(std3D_dwViewLayer));
     std3D_dwViewLayerValid = 0;
+    if (std3D_dwRefTex) glDeleteTextures(1, &std3D_dwRefTex);
+    std3D_dwRefTex = 0;
+    std3D_dwRefTexW = std3D_dwRefTexH = 0;
+    std3D_dwRefDirty = 1;
+}
+
+// The reference mask: the quantized pixels each view wrote into the 8-bit GUI buffer.
+// The present shows the layer where the GUI pixel still equals its reference, so GUI
+// code that reads or tints what is under it (dimmed icons, translucent panels, shaded
+// snapshots) works on real pixels exactly as with the software rasterizer.
+void std3D_DwSetViewRef(int x, int y, int w, int h, const uint8_t* pRect, int stride)
+{
+    int bw = Video_menuBuffer.format.width, bh = Video_menuBuffer.format.height;
+    if (bw <= 0 || bh <= 0 || !pRect) return;
+    if (!std3D_dwRef || std3D_dwRefW != bw || std3D_dwRefH != bh)
+    {
+        free(std3D_dwRef);
+        std3D_dwRef = (uint8_t*)calloc((size_t)bw * bh, 1);
+        std3D_dwRefW = bw; std3D_dwRefH = bh;
+        if (!std3D_dwRef) return;
+    }
+    if (x < 0) { w += x; pRect -= x; x = 0; }
+    if (y < 0) { h += y; pRect -= (ptrdiff_t)y * stride; y = 0; }
+    if (x + w > bw) w = bw - x;
+    if (y + h > bh) h = bh - y;
+    if (w <= 0 || h <= 0) return;
+    for (int r = 0; r < h; r++)
+        memcpy(std3D_dwRef + (size_t)(y + r) * bw + x, pRect + (size_t)r * stride, (size_t)w);
+    std3D_dwRefDirty = 1;
+}
+
+void std3D_DwClearViewRef()
+{
+    if (std3D_dwRef) memset(std3D_dwRef, 0, (size_t)std3D_dwRefW * std3D_dwRefH);
+    std3D_dwRefDirty = 1;
+}
+
+// std3D_DrawMenu: bind the reference mask on unit 2 and enable it for the GUI quad.
+static int std3D_DwBindViewRef()
+{
+    if (Main_bHeadless || !std3D_dwRef || !std3D_dwViewLayerValid || STD3D_DW_SCENE) return 0;
+    if (programMenu_uniform_refTex < 0 || programMenu_uniform_useRef < 0) return 0;
+    glActiveTexture(GL_TEXTURE0 + 2);
+    if (!std3D_dwRefTex || std3D_dwRefTexW != std3D_dwRefW || std3D_dwRefTexH != std3D_dwRefH)
+    {
+        if (std3D_dwRefTex) glDeleteTextures(1, &std3D_dwRefTex);
+        glGenTextures(1, &std3D_dwRefTex);
+        glBindTexture(GL_TEXTURE_2D, std3D_dwRefTex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, std3D_dwRefW, std3D_dwRefH, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+        std3D_dwRefTexW = std3D_dwRefW; std3D_dwRefTexH = std3D_dwRefH;
+        std3D_dwRefDirty = 1;
+    }
+    glBindTexture(GL_TEXTURE_2D, std3D_dwRefTex);
+    if (std3D_dwRefDirty)
+    {
+        GLint savedAlign = 4;
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &savedAlign);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, std3D_dwRefW, std3D_dwRefH, GL_RED, GL_UNSIGNED_BYTE, std3D_dwRef);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, savedAlign);
+        std3D_dwRefDirty = 0;
+    }
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glUniform1i(programMenu_uniform_refTex, 2);
+    glUniform1i(programMenu_uniform_useRef, 1);
+    return 1;
 }
 
 int std3D_DwBeginViewRect(int x, int y, int w, int h)
 {
     // Right after std3D_StartScene cleared the scene FBO: seed the view's rect with the
-    // layer's current pixels. GUI pixels inside this rect that another view already punched
-    // (index 0) are discarded by the backdrop quad in std3D_DwCompositeViewRect, so that
-    // view's pixels survive underneath instead of turning black.
+    // layer's current pixels. Index-0 GUI pixels inside this rect are discarded by the
+    // backdrop quad in std3D_DwCompositeViewRect, so the layer's pixels survive there
+    // instead of turning black.
     if (Main_bHeadless || !has_initted || !std3D_pFb) return 0;
     if (!std3D_dwViewLayerValid || !std3D_dwViewLayer.fbo
         || std3D_dwViewLayer.w != std3D_pFb->w || std3D_dwViewLayer.h != std3D_pFb->h)
@@ -3940,7 +4027,7 @@ int std3D_DwBeginViewRect(int x, int y, int w, int h)
 int std3D_DwCompositeViewRect(int x, int y, int w, int h, const uint8_t* pGuiRect, int guiStride)
 {
     if (Main_bHeadless || !has_initted || !std3D_pFb || w <= 0 || h <= 0 || !pGuiRect) return 0;
-    static int noComposite = -1; // DW_HW_NOCOMPOSITE=1: debug, punch the hole but touch no GL state
+    static int noComposite = -1; // DW_HW_NOCOMPOSITE=1: debug, skip the layer composite (readback only)
     if (noComposite < 0) { const char* p = getenv("DW_HW_NOCOMPOSITE"); noComposite = (p && *p && *p != '0') ? 1 : 0; }
     if (noComposite) return 1;
     int fbW = std3D_pFb->w, fbH = std3D_pFb->h;
@@ -4063,65 +4150,6 @@ static void std3D_DwPresentViewLayer()
     glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
 }
 
-int std3D_DwReadbackLayerRect(int x, int y, int w, int h, uint8_t* pOutRgb)
-{
-    if (Main_bHeadless || !has_initted || !std3D_dwViewLayerValid || !std3D_dwViewLayer.fbo || w <= 0 || h <= 0) return 0;
-    int fbW = std3D_dwViewLayer.w, fbH = std3D_dwViewLayer.h;
-    if (fbW <= 0 || fbH <= 0) return 0;
-
-    double s = (double)fbH / 480.0;
-    double offX = ((double)fbW - 640.0 * s) / 2.0;
-    int px0 = (int)floor(x * s + offX), py0 = (int)floor(y * s);
-    int px1 = (int)ceil((x + w) * s + offX), py1 = (int)ceil((y + h) * s);
-    if (px0 < 0) px0 = 0;
-    if (py0 < 0) py0 = 0;
-    if (px1 > fbW) px1 = fbW;
-    if (py1 > fbH) py1 = fbH;
-    int pw = px1 - px0, ph = py1 - py0;
-    if (pw <= 0 || ph <= 0) return 0;
-
-    uint8_t* pRgb = (uint8_t*)malloc((size_t)pw * ph * 3);
-    if (!pRgb) return 0;
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, std3D_dwViewLayer.fbo);
-    glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(px0, fbH - py1, pw, ph, GL_RGB, GL_UNSIGNED_BYTE, pRgb);
-    glBindFramebuffer(GL_FRAMEBUFFER, std3D_windowFbo);
-
-    for (int gy = 0; gy < h; gy++)
-    {
-        int by0 = (int)floor((y + gy) * s) - py0;
-        int by1 = (int)floor((y + gy + 1) * s) - py0;
-        if (by1 <= by0) by1 = by0 + 1;
-        if (by0 < 0) by0 = 0;
-        if (by1 > ph) by1 = ph;
-        for (int gx = 0; gx < w; gx++)
-        {
-            int bx0 = (int)floor((x + gx) * s + offX) - px0;
-            int bx1 = (int)floor((x + gx + 1) * s + offX) - px0;
-            if (bx1 <= bx0) bx1 = bx0 + 1;
-            if (bx0 < 0) bx0 = 0;
-            if (bx1 > pw) bx1 = pw;
-            uint32_t sumR = 0, sumG = 0, sumB = 0, cnt = 0;
-            for (int by = by0; by < by1; by++)
-            {
-                int row = ph - 1 - by;
-                for (int bx = bx0; bx < bx1; bx++)
-                {
-                    int i = row * pw + bx;
-                    sumR += pRgb[i * 3 + 0]; sumG += pRgb[i * 3 + 1]; sumB += pRgb[i * 3 + 2];
-                    cnt++;
-                }
-            }
-            int o = gy * w + gx;
-            pOutRgb[o * 3 + 0] = (uint8_t)(cnt ? sumR / cnt : 0);
-            pOutRgb[o * 3 + 1] = (uint8_t)(cnt ? sumG / cnt : 0);
-            pOutRgb[o * 3 + 2] = (uint8_t)(cnt ? sumB / cnt : 0);
-        }
-    }
-    free(pRgb);
-    return 1;
-}
 #endif // PLATFORM_DROIDWORKS
 
 int std3D_HasAlpha()

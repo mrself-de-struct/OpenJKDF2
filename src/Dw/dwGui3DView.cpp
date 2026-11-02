@@ -253,8 +253,8 @@ rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw)
     rdroid_bSoftwareRenderer = 0; // rdCache_Flush takes the std3D path (DW forces SW otherwise)
     dwDisplay_bHwView = 1;        // std3D: DW 640x480 mapping + light with rdColormap_pCurMap
     rdAdvanceFrame();             // std3D_StartScene: clears the scene FBO (color + depth)
-    // Direct mode: seed the view's rect from the layer so holes another view punched inside
-    // this rect keep that view's pixels (std3D_DwCompositeViewRect discards index 0 there).
+    // Direct mode: seed the view's rect from the layer (index-0 GUI pixels inside this rect
+    // keep the layer's pixels — std3D_DwCompositeViewRect discards them from the backdrop).
     if (!dwGui3DView_bReadback())
     {
         int x = pCanvas->xStart, y = pCanvas->yStart;
@@ -265,8 +265,8 @@ rdCanvas* dwGui3DView_BeginHwRender(int* pSavedSw)
 
 // Readback (256-color) compositing of the rect the view just rendered: box-filter the scene
 // FBO to one sample per GUI pixel, quantize to rdColormap_pCurMap, write the covered pixels
-// into the 8bpp canvas. Used for the part-pick render (its result is sampled from the 8-bit
-// screen) and as the fallback when the layer composite is unavailable.
+// into the 8bpp canvas. Always run (the 8-bit GUI keeps real pixels; see EndHwRender); the
+// part-pick render samples its result from the 8-bit screen.
 static void dwGui3DView_ReadbackIntoCanvas(rdCanvas* pCanvas)
 {
 
@@ -326,10 +326,7 @@ static void dwGui3DView_ReadbackIntoCanvas(rdCanvas* pCanvas)
 }
 
 // Direct compositing: the GUI pixels under the view go behind the droid in std3D's view
-// layer (std3D_DwCompositeViewRect), and the view rect is punched to palette index 0 — the
-// menu shader's transparent index — so the present shows the layer through it at full
-// window resolution and color. Widgets drawn after the view (markers, dialogs, the cursor)
-// still land on top in the usual 8-bit draw order. Returns 0 when the layer is unavailable.
+// layer (std3D_DwCompositeViewRect). Returns 0 when the layer is unavailable.
 static int dwGui3DView_CompositeIntoLayer(rdCanvas* pCanvas)
 {
     int x = pCanvas->xStart, y = pCanvas->yStart;
@@ -342,24 +339,41 @@ static int dwGui3DView_CompositeIntoLayer(rdCanvas* pCanvas)
     stdDisplay_VBufferLock(pVBuf);
     uint8_t* pPix = (uint8_t*)pVBuf->surface_lock_alloc;
     if (pPix)
-    {
-        int stride = pVBuf->format.rowSize;
-        if (std3D_DwCompositeViewRect(x, y, w, h, pPix + (size_t)y * stride + x, stride))
-        {
-            for (int gy = 0; gy < h; gy++)
-                memset(pPix + (size_t)(y + gy) * stride + x, 0, (size_t)w);
-            bDone = 1;
-        }
-    }
+        bDone = std3D_DwCompositeViewRect(x, y, w, h, pPix + (size_t)y * pVBuf->format.rowSize + x, pVBuf->format.rowSize);
     stdDisplay_VBufferUnlock(pVBuf);
     return bDone;
 }
 
+// After the readback wrote the view's quantized pixels into the canvas: the same pixels
+// become the present's reference mask (see std3D_DwSetViewRef).
+static void dwGui3DView_SetViewRef(rdCanvas* pCanvas)
+{
+    int x = pCanvas->xStart, y = pCanvas->yStart;
+    int w = pCanvas->widthMinusOne - x + 1, h = pCanvas->heightMinusOne - y + 1;
+    tVBuffer* pVBuf = pCanvas->pVBuffer;
+    if (!pVBuf || w <= 0 || h <= 0 || x < 0 || y < 0
+        || x + w > (int)pVBuf->format.width || y + h > (int)pVBuf->format.height)
+        return;
+    stdDisplay_VBufferLock(pVBuf);
+    uint8_t* pPix = (uint8_t*)pVBuf->surface_lock_alloc;
+    if (pPix)
+        std3D_DwSetViewRef(x, y, w, h, pPix + (size_t)y * pVBuf->format.rowSize + x, pVBuf->format.rowSize);
+    stdDisplay_VBufferUnlock(pVBuf);
+}
+
+// Direct mode: the view goes into the GL view layer (full window resolution and color)
+// AND, as in readback mode, quantized into the 8-bit canvas. The present shows the layer
+// wherever the GUI pixel still equals that quantized pixel, so the 8-bit draw order is
+// untouched: widgets drawn after the view (markers, dialogs, the cursor) and GUI code that
+// reads or tints what is under it (dimmed part icons, translucent panels, shaded screen
+// snapshots) all see and produce real pixels, exactly as with the software rasterizer.
 void dwGui3DView_EndHwRender(rdCanvas* pCanvas, int savedSw)
 {
     rdFinishFrame();              // flushes the render list into the scene FBO
-    if (dwGui3DView_bReadback() || !dwGui3DView_CompositeIntoLayer(pCanvas))
-        dwGui3DView_ReadbackIntoCanvas(pCanvas);
+    int bLayer = !dwGui3DView_bReadback() && dwGui3DView_CompositeIntoLayer(pCanvas);
+    dwGui3DView_ReadbackIntoCanvas(pCanvas);
+    if (bLayer)
+        dwGui3DView_SetViewRef(pCanvas);
     dwDisplay_bHwView = 0;
     rdroid_bSoftwareRenderer = savedSw;
 }
@@ -371,31 +385,6 @@ void dwGui3DView_EndHwRenderReadback(rdCanvas* pCanvas, int savedSw)
     dwDisplay_bHwView = 0;
     rdroid_bSoftwareRenderer = savedSw;
 }
-
-void dwGui3DView_FillHolesFromLayer(uint8_t* pPixels, int stride, int w, int h)
-{
-    if (!dwDisplay_bHwRender || dwGui3DView_bReadback() || !pPixels || w <= 0 || h <= 0) return;
-    const rdColormap* pMap = rdColormap_pCurMap;
-    if (!pMap) return;
-    uint8_t* pRgb = (uint8_t*)malloc((size_t)w * h * 3);
-    if (pRgb && std3D_DwReadbackLayerRect(0, 0, w, h, pRgb))
-    {
-        dwGui3DView_EnsureQuantLut(pMap);
-        for (int gy = 0; gy < h; gy++)
-        {
-            uint8_t* pRow = pPixels + (size_t)gy * stride;
-            for (int gx = 0; gx < w; gx++)
-            {
-                if (pRow[gx] != 0) continue;
-                int o = gy * w + gx;
-                int c = ((pRgb[o * 3 + 0] >> 3) << 10) | ((pRgb[o * 3 + 1] >> 3) << 5) | (pRgb[o * 3 + 2] >> 3);
-                pRow[gx] = dwGui3DView_aQuantLut[c];
-            }
-        }
-    }
-    free(pRgb);
-}
-
 
 rdCanvas* dwGui3DView_BeginRender(int* pSaved)
 {

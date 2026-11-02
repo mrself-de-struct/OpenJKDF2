@@ -350,7 +350,8 @@ int dwDisplay_SetMode(int width, int height, int bpp)
         dwDisplay_pFrontVBuf = &Video_menuBuffer;
 
         stdDisplay_VBufferFill(dwDisplay_pBackVBuf, 0, NULL); // binary: DW-stdDisplay fill
-        std3D_DwClearViewLayer(); // Added: the GL view layer would show through the index-0 fill
+        std3D_DwClearViewLayer(); // Added: fresh mode, fresh GL view layer + reference mask
+        std3D_DwClearViewRef();
         stdDisplay_DDrawGdiSurfaceFlip();                     // binary: DW-stdDisplay flip
 
         if (dwDisplay_pScreenImage)

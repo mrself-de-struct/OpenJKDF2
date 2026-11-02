@@ -151,13 +151,14 @@ int std3D_DwReadbackRect(int x, int y, int w, int h, uint8_t* pOutRgb, uint8_t* 
 // BeginViewRect: right after the view's std3D_StartScene, seed its rect from the layer.
 // CompositeViewRect: after the view's render list flushed, draw the 8-bit GUI backdrop
 // (pGuiRect = the canvas pixels under the view, guiStride bytes per row) behind it and
-// copy the rect into the layer; the caller then punches the GUI rect to index 0. The
-// present blits the layer under the menu quad. ReadbackLayerRect: the layer's pixels
-// box-filtered to one RGB sample per GUI pixel (w*h*3 bytes). All return 0 when there
-// is no GL scene (headless) or the layer is empty.
+// copy the rect into the layer. SetViewRef: the quantized pixels the view then wrote into
+// the GUI buffer, which the present compares the GUI against to decide where the layer
+// shows (ClearViewRef on a screen change). Both composite calls return 0 when there is
+// no GL scene (headless) or the layer is empty.
 int std3D_DwBeginViewRect(int x, int y, int w, int h);
 int std3D_DwCompositeViewRect(int x, int y, int w, int h, const uint8_t* pGuiRect, int guiStride);
-int std3D_DwReadbackLayerRect(int x, int y, int w, int h, uint8_t* pOutRgb);
+void std3D_DwSetViewRef(int x, int y, int w, int h, const uint8_t* pRect, int stride);
+void std3D_DwClearViewRef(void);
 void std3D_DwClearViewLayer(void);
 #endif
 
