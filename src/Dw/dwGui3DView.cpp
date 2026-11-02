@@ -401,11 +401,16 @@ rdCanvas* dwGui3DView_BeginRender(int* pSaved)
     return pCanvas;
 }
 
+// The part-pick render always goes through the software rasterizer: the paint tool reads
+// the palette index at the click point from the 8-bit screen and that index identifies
+// the part's paint region (its contact color), so it must be the exact texel index —
+// std3D's output passes through the colormap's RGB, texture filtering and the box
+// filter + nearest-color quantization of the readback and does not come back exact.
 rdCanvas* dwGui3DView_BeginPickRender(int* pSaved)
 {
-    rdCanvas* pCanvas = dwGui3DView_BeginRender(pSaved);
-    if (*pSaved & DWGUI3DVIEW_RENDER_HW_BIT)
-        *pSaved |= DWGUI3DVIEW_RENDER_READBACK_BIT;
+    int savedAccel = 0;
+    rdCanvas* pCanvas = dwGui3DView_BeginSwRender(&savedAccel);
+    *pSaved = savedAccel & 0xffff;
     return pCanvas;
 }
 

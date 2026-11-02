@@ -19,6 +19,7 @@
 // consumers reference keep C linkage via the extern "C" blocks below.
 
 #include "Dw/dwMain.h"
+#include "Platform/std3D.h" // Added: std3D_PurgeSurfaceRefs (recolored paint textures)
 
 #include "Dw/dwRect.h"
 #include "Dw/dwInits.h"
@@ -467,6 +468,13 @@ extern "C" void dwMain_MaterialCache_RecolorMasked(rdMaterial* pMaterial, int ma
         stdDisplay_VBufferUnlock(pMatBuf); // binary: stdDisplay_FUN_004fdfc0
         stdDisplay_VBufferUnlock(pVarBuf);
         stdDisplay_VBufferUnlock(pBaseBuf);
+        // Added: the hardware views sample this texture from std3D's GL copy — drop it so the
+        // recolored texels are re-uploaded on the next draw (every mip and both surface sets).
+        for (int m = 0; m < 4; m++)
+        {
+            std3D_PurgeSurfaceRefs(&pMaterial->textures[t].alphaMats[m]);
+            std3D_PurgeSurfaceRefs(&pMaterial->textures[t].opaqueMats[m]);
+        }
     }
 }
 
