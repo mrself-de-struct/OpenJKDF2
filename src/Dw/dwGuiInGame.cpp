@@ -73,6 +73,11 @@
 extern "C" {
 #include "Engine/sithRender.h"
 #include "Engine/sithPhysics.h"
+#include "Devices/sithSoundMixer.h"
+#include "World/sithSoundClass.h"
+#include "General/stdMath.h"
+#include "Primitives/rdMatrix.h"
+#include "Dw/dwPart.h"
 #include "World/sithSector.h"
 #include "World/sithThing.h"
 #include "Gameplay/sithTime.h"
@@ -854,6 +859,7 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static int bParsed = 0;
     static int bHaveTp = 0, bTpDone = 0;
     static float tp[3];
+    static float tpYaw = -1000.0f;
     static unsigned tpMs = 0;
     static int actSurf = -1, bActDone = 0;
     static unsigned actMs = 0;
@@ -869,7 +875,9 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
         buf[sizeof(buf) - 1] = '\0';
         for (char* pTok = strtok(buf, ";"); pTok != NULL; pTok = strtok(NULL, ";"))
         {
-            if (sscanf(pTok, "tp:%f,%f,%f@%u", &tp[0], &tp[1], &tp[2], &tpMs) == 4)
+            if (sscanf(pTok, "tp:%f,%f,%f,%f@%u", &tp[0], &tp[1], &tp[2], &tpYaw, &tpMs) == 5)
+                bHaveTp = 1;
+            else if (sscanf(pTok, "tp:%f,%f,%f@%u", &tp[0], &tp[1], &tp[2], &tpMs) == 4)
                 bHaveTp = 1;
             else if (sscanf(pTok, "act:%d@%u", &actSurf, &actMs) == 2)
                 ;
@@ -893,6 +901,12 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             rdVector_Copy3(&pThing->position, &pos);
             sithThing_SetSector(pThing, pSec, 0);
             rdVector_Zero3(&pThing->physicsParams.vel);
+            if (tpYaw > -999.0f)
+            {
+                rdVector3 pyr = { 0.0f, tpYaw, 0.0f };
+                rdMatrix_BuildRotate34(&pThing->orient, &pyr);
+                rdVector_Copy3(&pThing->orient.scale, &pThing->position);
+            }
             sithPhysics_FindFloor(pThing, 1);
         }
     }
@@ -908,12 +922,22 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     {
         nextTrace = now + traceMs;
         SithSector* pSec = pThing->sector;
-        stdPlatform_Printf("DEBUGSCRIPT: t=%u pos %.3f %.3f %.3f vel.z %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f\n",
+        int runIdx = -1, walkIdx = -1;
+        if (pThing->pSoundClass != NULL)
+        {
+            if (pThing->pSoundClass->entries[SITH_SC_LRUNHARD] != NULL)
+                runIdx = sithSoundMixer_GetThingSoundIdx(pThing, pThing->pSoundClass->entries[SITH_SC_LRUNHARD]->sound);
+            if (pThing->pSoundClass->entries[SITH_SC_LWALKHARD] != NULL)
+                walkIdx = sithSoundMixer_GetThingSoundIdx(pThing, pThing->pSoundClass->entries[SITH_SC_LWALKHARD]->sound);
+        }
+        stdPlatform_Printf("DEBUGSCRIPT: t=%u pos %.3f %.3f %.3f vel %.3f %.3f %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f run %d walk %d bat %.2f lasers %d lvec %.2f %.2f %.2f\n",
                            now, pThing->position.x, pThing->position.y, pThing->position.z,
-                           pThing->physicsParams.vel.z,
+                           pThing->physicsParams.vel.x, pThing->physicsParams.vel.y, pThing->physicsParams.vel.z,
                            pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1,
                            pThing->attach_flags, pSec ? pSec->flags : 0, pSec ? pSec->thrust.z : 0.0f,
-                           pThing->physicsParams.mass);
+                           pThing->physicsParams.mass, runIdx, walkIdx, sithInventory_GetInventory(pThing, 0x14),
+                           sithWorld_g_pCurrentWorld->numDwLasers,
+                           pThing->orient.lvec.x, pThing->orient.lvec.y, pThing->orient.lvec.z);
     }
 }
 
@@ -968,10 +992,106 @@ void dwGuiInGame::Update()
     if (this->bEndRequested == 0 && g_sithMode != 0)
     {
         sithUpdate();
-        // TODO(dw-decomp): movement-driven servo-sound pitch/volume + energy
-        // drain read pThing->physicsParams.vel/maxVelocity/angularVelocity and
-        // drive sithSoundClass/sithSoundMixer — DW-forked layout (P8). The
-        // per-frame Invalidate is kept.
+
+        // Movement servo sound + tread frames + battery drain (binary 0x420d44..0x4210b5).
+        // speed = horizontal |vel| (zeroed below 1e-5); speedFrac = speed / maxVelocity;
+        // turnFrac = |angVel.y / maxRotationVelocity|.
+        float dt = sithTime_g_frameTimeFlex;
+        float drainStep = (this->pDroidStats ? this->pDroidStats->totals.drain : 0.0f) * dt;
+        rdVector3* pVel = &pThing->physicsParams.vel;
+        float hSpeed = stdMath_Sqrt(pVel->x * pVel->x + pVel->y * pVel->y);
+        speed = (fabsf(hSpeed) > 1e-5f) ? hSpeed : 0.0f;
+        float maxVelocity = pThing->physicsParams.maxVelocity;
+        float speedFrac = (maxVelocity != 0.0f) ? (speed / maxVelocity) : 0.0f; // binary divides unguarded
+        float turnFrac = 0.0f;
+        if (!rdVector_IsZero3(&pThing->physicsParams.angularVelocity))
+        {
+            float maxRot = pThing->physicsParams.maxRotationVelocity;
+            turnFrac = (maxRot != 0.0f) ? fabsf(pThing->physicsParams.angularVelocity.y / maxRot) : 0.0f;
+        }
+
+        uint32_t caps = dwCog_droidCaps;
+        int bTreads = (caps & 0x80000) != 0;
+        if (!bTreads && speedFrac <= 0.05f && turnFrac <= 0.05f)
+        {
+            // Legs standing still: no servo sound at all.
+            sithSoundClass_StopMode(pThing, SITH_SC_LRUNHARD);
+            sithSoundClass_StopMode(pThing, SITH_SC_LWALKHARD);
+        }
+        else
+        {
+            // Treads idle at 20% volume and swell with speed; legs play at full
+            // volume and only the pitch follows the speed.
+            float volFloor = bTreads ? 0.2f : 1.0f;
+            int mode = SITH_SC_LRUNHARD;
+            sithSoundClass* pSc = pThing->pSoundClass;
+            if (pSc != NULL && pSc->entries[SITH_SC_LWALKHARD] != NULL
+                && pSc->entries[SITH_SC_LWALKHARD]->sound != NULL)
+            {
+                // A part supplies a walk loop: use it while the walk/walkback
+                // animation plays, the run loop otherwise.
+                SithPuppetClass* pAc = pThing->pPuppetClass;
+                sithPuppet* pPup = pThing->puppet;
+                int bWalking = pAc != NULL && pPup != NULL
+                    && (pPup->playingAnim == &pAc->modes[0].keyframe[SITH_ANIM_WALK]
+                        || pPup->playingAnim == &pAc->modes[0].keyframe[SITH_ANIM_WALKBACK]);
+                if (bWalking)
+                {
+                    mode = SITH_SC_LWALKHARD;
+                    sithSoundClass_StopMode(pThing, SITH_SC_LRUNHARD);
+                }
+                else
+                {
+                    sithSoundClass_StopMode(pThing, SITH_SC_LWALKHARD);
+                }
+            }
+            sithSound* pSound = (pSc != NULL && pSc->entries[mode] != NULL) ? pSc->entries[mode]->sound : NULL;
+            sithPlayingSound* pPlaying = NULL;
+            if (pSound != NULL)
+            {
+                int idx = sithSoundMixer_GetThingSoundIdx(pThing, pSound);
+                if (idx >= 0)
+                    pPlaying = sithSoundMixer_GetSoundFromIdx(idx);
+                if (pPlaying == NULL)
+                {
+                    sithSoundClass_PlayModeFirst(pThing, mode);
+                    idx = sithSoundMixer_GetThingSoundIdx(pThing, pSound);
+                    if (idx >= 0)
+                        pPlaying = sithSoundMixer_GetSoundFromIdx(idx);
+                    if (pPlaying != NULL)
+                    {
+                        sithSoundMixer_SetFrequency(pPlaying, 0.5f);
+                        sithSoundMixer_SetVolume(pPlaying, volFloor);
+                    }
+                }
+            }
+            if (pPlaying != NULL)
+            {
+                float level = turnFrac * 0.5f;
+                if (level < speedFrac)
+                    level = speedFrac;
+                if (mode == SITH_SC_LWALKHARD)
+                {
+                    level = level + level;
+                    if (level > 1.0f)
+                        level = 1.0f;
+                }
+                sithSoundMixer_SetPitch(pPlaying, (1.0f - 0.5f) * level + 0.5f, 0.25f);
+                sithSoundMixer_FadeVolume(pPlaying, (1.0f - volFloor) * level + volFloor, 0.25f);
+            }
+        }
+
+        // Treads: step the tread mesh frames while moving or turning.
+        if (bTreads && (speedFrac > 0.0f || turnFrac > 0.0f))
+            dwPart_AdvanceModelFrame(pThing->renderData.model3);
+
+        // Battery (bin 0x14) drains by DRAIN * dt scaled by speed, never below 10%.
+        float drainLevel = (speedFrac < 0.1f) ? 0.1f : speedFrac;
+        float battery = sithInventory_GetInventory(pThing, 0x14) - drainLevel * drainStep;
+        if (battery < 0.0f)
+            battery = 0.0f;
+        sithInventory_SetInventory(pThing, 0x14, battery);
+
         Invalidate();
     }
 

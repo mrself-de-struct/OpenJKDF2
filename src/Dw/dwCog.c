@@ -20,6 +20,7 @@
 
 #include "Dw/dwCog.h"
 #include "Dw/dwWidget.h" // dwWidgetMsg + dwWidget_DispatchMsg (HUD refresh)
+#include "Dw/dwLaser.h"  // addbeam/addlaser/removelaser/getlaserid
 
 #include "Cog/sithCog.h"
 #include "Cog/sithCogExec.h"
@@ -907,6 +908,55 @@ void dwCog_SetupCrystalInventory(sithCog* pCtx)
     dwCog_HudRefreshInventory();
 }
 
+// ---- laser / beam verbs (dwLaser pool) -------------------------------------------
+// addbeam(from, to, color, width): persistent beam between two things, e.g. the
+// black "wires" the Trams skyway magnets hang from. Returns the beam id.
+void dwCog_AddBeam(sithCog* pCtx)
+{
+    float width = (float)sithCogExec_PopFlex(pCtx);
+    int color = sithCogExec_PopInt(pCtx);
+    SithThing* pTo = sithCogExec_PopThing(pCtx);
+    SithThing* pFrom = sithCogExec_PopThing(pCtx);
+    tDwLaser* pLaser = NULL;
+    if (pFrom != NULL && pTo != NULL && sithWorld_g_pCurrentWorld != NULL)
+        pLaser = dwLaser_Add(sithWorld_g_pCurrentWorld, pFrom, pTo, color, width);
+    sithCogExec_PushInt(pCtx, pLaser ? (int)pLaser->id : -1);
+}
+
+// addlaser(thing, color, width): free beam along the thing's look vector (mirror
+// bounces, "laserhit" messages). Returns the laser id.
+void dwCog_AddLaser(sithCog* pCtx)
+{
+    float width = (float)sithCogExec_PopFlex(pCtx);
+    int color = sithCogExec_PopInt(pCtx);
+    SithThing* pOwner = sithCogExec_PopThing(pCtx);
+    tDwLaser* pLaser = NULL;
+    if (pOwner != NULL && sithWorld_g_pCurrentWorld != NULL)
+        pLaser = dwLaser_Add(sithWorld_g_pCurrentWorld, pOwner, NULL, color, width);
+    sithCogExec_PushInt(pCtx, pLaser ? (int)pLaser->id : -1);
+}
+
+// removelaser(id)
+void dwCog_RemoveLaser(sithCog* pCtx)
+{
+    int id = sithCogExec_PopInt(pCtx);
+    if (sithWorld_g_pCurrentWorld == NULL || id < 0)
+        return;
+    tDwLaser* pLaser = dwLaser_FindById(sithWorld_g_pCurrentWorld, (uint32_t)id);
+    if (pLaser != NULL)
+        dwLaser_Remove(sithWorld_g_pCurrentWorld, pLaser);
+}
+
+// getlaserid(thing) -> id of the laser owned by thing, or -1.
+void dwCog_GetLaserId(sithCog* pCtx)
+{
+    SithThing* pThing = sithCogExec_PopThing(pCtx);
+    tDwLaser* pLaser = NULL;
+    if (pThing != NULL && sithWorld_g_pCurrentWorld != NULL)
+        pLaser = dwLaser_FindByThing(sithWorld_g_pCurrentWorld, pThing);
+    sithCogExec_PushInt(pCtx, pLaser ? (int)pLaser->id : -1);
+}
+
 void dwCog_RegisterVerbs(void)
 {
     // --- READY (wired) ---------------------------------------------------
@@ -942,6 +992,10 @@ void dwCog_RegisterVerbs(void)
     sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_EnableEscape,     "dwenableescape");
     sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_DisableEscape,    "dwdisableescape");
     sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_FlashInventory,   "dwflashinventory");
+    sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_AddBeam,          "addbeam");
+    sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_AddLaser,         "addlaser");
+    sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_RemoveLaser,      "removelaser");
+    sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_GetLaserId,       "getlaserid");
 
     // caption / dialog / movie
     sithCog_RegisterFunction(sithCog_g_pSymbolTable, dwCog_SetMissionText,   "dwsetmissiontext");

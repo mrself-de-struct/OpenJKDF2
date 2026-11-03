@@ -141,7 +141,11 @@ void dwLaser_DrawQuad(rdVector3* aQuad, rdMaterial* pMaterial)
     pProc->lightingMode = RD_LIGHTMODE_FULLYLIT;
     pProc->textureMode = RD_TEXTUREMODE_AFFINE;
     pProc->wallCel = 0;
-    pProc->type = 0;
+    // Added: the binary's software rasterizer flips the winding of faces whose
+    // light_flags backface bit is set (computed below); the port's hardware path
+    // only honours that bit for double-sided faces, so mark the beam as such or
+    // GL culls the ribbon whenever it is seen from behind (the skyway wires).
+    pProc->type = RD_FF_DOUBLE_SIDED;
     pProc->extralight = 1.0;
     uvOffset.x = 0.0; // Note: left uninitialized in the binary; unused for solid geometry
     uvOffset.y = 0.0;
@@ -329,6 +333,12 @@ tDwLaser* dwLaser_Add(SithWorld* pWorld, SithThing* pOwnerThing, SithThing* pTar
     pEntry->material.num_texinfo = 1;
     pEntry->material.curCelNum = 0;
     pEntry->material.texinfos[0] = &pEntry->texinfo;
+#if defined(RDMATERIAL_LRU_LOAD_UNLOAD)
+    // Added: the inline material has no file behind it; without these rdCache
+    // would try (and fail) to stream it every frame and drop the beam faces.
+    pEntry->material.bDataLoaded = 1;
+    pEntry->material.bMetadataLoaded = 1;
+#endif
     return pEntry;
 }
 
