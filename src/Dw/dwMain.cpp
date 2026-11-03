@@ -870,6 +870,22 @@ static bool dw_Startup(void)
     {
         const char* pProfile = (*pAutoMission != '\0') ? pAutoMission : "ME";
         dwPlayer_LoadPlr(pProfile); // restores dwCore_pWorkspaceNodes (the built droid)
+        // Added: DW_AUTO_MISSION_NAME=<BEGIN id> picks that .MIS record (e.g. "training",
+        // "Trams") instead of the profile's current mission.
+        const char* pMissionName = getenv("DW_AUTO_MISSION_NAME");
+        if (pMissionName != NULL && dwCore_pMissionList != NULL)
+        {
+            for (dwListNode* pNode = dwCore_pMissionList->pNext; pNode != dwCore_pMissionList; pNode = pNode->pNext)
+            {
+                dwMission* pM = (dwMission*)pNode->pData;
+                if (pM != NULL && pM->name.pBuffer != NULL && dwString_Equals(pM->name.pBuffer, pMissionName))
+                {
+                    pM->bUnlocked = 1;
+                    dwCore_pCurrentMission = pM;
+                    break;
+                }
+            }
+        }
         if (dwCore_pCurrentMission != NULL)
         {
             dwSegment* pMission = dwGuiInGame_New(dwCore_pCurrentMission);

@@ -73,6 +73,8 @@
 extern "C" {
 #include "Engine/sithRender.h"
 #include "Engine/sithPhysics.h"
+#include "World/sithSector.h"
+#include "World/sithThing.h"
 #include "Gameplay/sithTime.h"
 #include "Cog/sithCog.h"
 #include "Gameplay/sithInventory.h"
@@ -844,9 +846,81 @@ void dwGuiInGame::Resume()
 // per-frame mission tick. See the FIDELITY NOTE (movement-sound +
 // physics reads touch DW-forked SithThing fields; the gauge/chatter/energy/
 // death/voice logic is preserved).
+// Added: DW_DEBUG_SCRIPT="tp:x,y,z@ms;act:<surface>@ms;trace:<ms>" — headless test
+// driver for mission mechanics: teleport the droid at a game time, send ACTIVATE to a
+// surface at a game time, and/or print the droid's position every <ms>. No effect unset.
+static void dwGuiInGame_DebugScript(SithThing* pThing)
+{
+    static int bParsed = 0;
+    static int bHaveTp = 0, bTpDone = 0;
+    static float tp[3];
+    static unsigned tpMs = 0;
+    static int actSurf = -1, bActDone = 0;
+    static unsigned actMs = 0;
+    static unsigned traceMs = 0, nextTrace = 0;
+    if (!bParsed)
+    {
+        bParsed = 1;
+        const char* pEnv = getenv("DW_DEBUG_SCRIPT");
+        if (pEnv == NULL)
+            return;
+        char buf[256];
+        strncpy(buf, pEnv, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        for (char* pTok = strtok(buf, ";"); pTok != NULL; pTok = strtok(NULL, ";"))
+        {
+            if (sscanf(pTok, "tp:%f,%f,%f@%u", &tp[0], &tp[1], &tp[2], &tpMs) == 4)
+                bHaveTp = 1;
+            else if (sscanf(pTok, "act:%d@%u", &actSurf, &actMs) == 2)
+                ;
+            else
+                sscanf(pTok, "trace:%u", &traceMs);
+        }
+    }
+    if (pThing == NULL || sithWorld_g_pCurrentWorld == NULL)
+        return;
+    unsigned now = (unsigned)sithTime_g_msecGameTime;
+    if (bHaveTp && !bTpDone && now >= tpMs)
+    {
+        bTpDone = 1;
+        rdVector3 pos = { tp[0], tp[1], tp[2] };
+        SithSector* pSec = sithSector_FindSectorAtPos(sithWorld_g_pCurrentWorld, &pos);
+        stdPlatform_Printf("DEBUGSCRIPT: tp %f %f %f -> sector %d\n", pos.x, pos.y, pos.z,
+                           pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1);
+        if (pSec != NULL)
+        {
+            sithThing_DetachThing(pThing);
+            rdVector_Copy3(&pThing->position, &pos);
+            sithThing_SetSector(pThing, pSec, 0);
+            rdVector_Zero3(&pThing->physicsParams.vel);
+            sithPhysics_FindFloor(pThing, 1);
+        }
+    }
+    if (actSurf >= 0 && !bActDone && now >= actMs)
+    {
+        bActDone = 1;
+        stdPlatform_Printf("DEBUGSCRIPT: activate surface %d (droid caps 0x%x)\n", actSurf,
+                           dwGuiInGame_GetDroidCaps(-1));
+        if (actSurf < (int)sithWorld_g_pCurrentWorld->numSurfaces)
+            sithCog_SurfaceSendMessage(&sithWorld_g_pCurrentWorld->surfaces[actSurf], pThing, SITH_MESSAGE_ACTIVATE);
+    }
+    if (traceMs != 0 && now >= nextTrace)
+    {
+        nextTrace = now + traceMs;
+        SithSector* pSec = pThing->sector;
+        stdPlatform_Printf("DEBUGSCRIPT: t=%u pos %.3f %.3f %.3f vel.z %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f\n",
+                           now, pThing->position.x, pThing->position.y, pThing->position.z,
+                           pThing->physicsParams.vel.z,
+                           pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1,
+                           pThing->attach_flags, pSec ? pSec->flags : 0, pSec ? pSec->thrust.z : 0.0f,
+                           pThing->physicsParams.mass);
+    }
+}
+
 void dwGuiInGame::Update()
 {
     SithThing* pThing = sithWorld_g_pCurrentWorld->pLocalPlayer;
+    dwGuiInGame_DebugScript(pThing);
 
     // A response was selected (bConvActive) and it carries a conversation cog:
     // notify that cog (DW message 0x2f = 47) and clear the pending flag.

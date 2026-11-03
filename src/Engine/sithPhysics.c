@@ -7,6 +7,7 @@
 #include "World/sithThing.h"
 #include "World/sithSector.h"
 #include "World/jkPlayer.h"
+#include "Main/Main.h"
 #include "jk.h"
 
 void sithPhysics_FindFloor(SithThing *pThing, int bNoThingStateUpdate)
@@ -961,7 +962,14 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
 
     if (pThing->physicsParams.mass != 0.0 && (pThing->sector->flags & SITH_SECTOR_USETHRUST) && !(pThing->physicsParams.flags & SITH_PF_NOTHRUST))
     {
-        if ( pThing->sector->thrust.z > sithWorld_g_pCurrentWorld->gravity * pThing->physicsParams.mass )
+        // DroidWorks (DroidWorks.exe 0x45b88b) compares the sector thrust against
+        // gravity alone, not gravity * mass: its magnets push a sector up with
+        // thrust 8 under gravity 4, and the baked droid weighs hundreds of units,
+        // so the JK test would never lift a droid off the floor.
+        flex_t liftThreshold = sithWorld_g_pCurrentWorld->gravity;
+        if (!Main_bDroidWorks)
+            liftThreshold *= pThing->physicsParams.mass;
+        if ( pThing->sector->thrust.z > liftThreshold )
         {
             sithThing_DetachThing(pThing);
             rdVector_Zero3(&pThing->physicsParams.gravityForce);
