@@ -1,4 +1,5 @@
 #include "sithTime.h"
+#include <stdlib.h> // Added: getenv
 
 #include "stdPlatform.h"
 
@@ -53,8 +54,19 @@ void sithTime_Resume()
 }
 
 // MOTS altered: min/max are variables
+// Added: DW_DEBUG_FRAME_MS=<ms> feeds the game a fixed frame time regardless of the wall
+// clock (headless physics tests: the same scripted run at a simulated 15 or 300 fps).
+static int sithTime_debugFrameMs = -1;
+
 void sithTime_SetFrameTime(int frameTime)
 {
+    if ( sithTime_debugFrameMs < 0 )
+    {
+        const char* pEnv = getenv("DW_DEBUG_FRAME_MS");
+        sithTime_debugFrameMs = pEnv ? atoi(pEnv) : 0;
+    }
+    if ( sithTime_debugFrameMs > 0 )
+        frameTime = sithTime_debugFrameMs;
     sithTime_g_frameTime = frameTime;
     sithTime_g_clockTime = stdPlatform_GetTimeMsec();
     if ( sithTime_g_frameTime < SITHTIME_MINDELTA )
@@ -71,6 +83,8 @@ void sithTime_SetFrameTime(int frameTime)
     sithTime_g_msecGameTime += sithTime_g_frameTime;
 #ifdef MICROSECOND_TIME
     sithTime_deltaUs = Linux_TimeUs() - sithTime_curUsAbsolute;
+    if ( sithTime_debugFrameMs > 0 )
+        sithTime_deltaUs = (uint64_t)sithTime_debugFrameMs * 1000;
     if ( sithTime_deltaUs < SITHTIME_MINDELTA_US )
     {
         sithTime_deltaUs = SITHTIME_MINDELTA_US;

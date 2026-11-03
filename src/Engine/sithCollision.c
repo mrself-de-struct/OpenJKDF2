@@ -15,7 +15,9 @@
 #include "Engine/sithCamera.h"
 #include "General/stdMath.h"
 #include "Primitives/rdMath.h"
+#include "Main/Main.h" // Added: Main_bDroidWorks
 #include "jk.h"
+#include <stdlib.h> // Added: getenv
 
 static int sithCollision_initted = 0;
 
@@ -617,8 +619,14 @@ void sithCollision_RotateThing(SithThing *pThing, rdMatrix34 *pOrient)
     }
 }
 
+// Added: DW_DEBUG_COLL=1 traces the local player's collision hits and floor correction
+// (headless physics tests); DW_DEBUG_COLL=2 also disables the DroidWorks edge-skip rule.
+int sithCollision_bDwDebugColl = -1;
+
 flex_t sithCollision_MoveThing(SithThing *pThing, rdVector3 *moveNorm, flex_t moveDist, int flags)
 {
+    if ( sithCollision_bDwDebugColl < 0 )
+        sithCollision_bDwDebugColl = getenv("DW_DEBUG_COLL") ? atoi(getenv("DW_DEBUG_COLL")) : 0;
     SithThing *v5; // ebp
     SithThing *v10; // esi
     flex_d_t v11; // st7
@@ -733,6 +741,31 @@ LABEL_78:
                 v19 = sithCollision_PopStack();
                 if ( !v19 ) {
                     break;
+                }
+
+                // DroidWorks (DroidWorks.exe 0x466598): while attached, an edge hit against a
+                // world surface that lies within 45 degrees of the attached face is skipped.
+                // A droid's collision sphere rests on the floor (moveSize == height), so
+                // without this every floor seam, lip and ramp edge would deflect it.
+                int bDwSkipHit = Main_bDroidWorks
+                  && (v19->type & SITHCOLLISION_THINGCROSS) != 0
+                  && (v19->type & SITHCOLLISION_WORLD) != 0
+                  && v5->attach_flags
+                  && v5->attachedSufaceInfo
+                  && rdVector_Dot3(&v5->attachedSufaceInfo->face.normal, &v19->surface->surfaceInfo.face.normal) > 0.70710677;
+                if ( sithCollision_bDwDebugColl && pThing == sithPlayer_g_pLocalPlayerThing )
+                {
+                    stdPlatform_Printf("COLL: it %u type 0x%x dist %.5f/%.5f surf %d thing %d hitN %.3f %.3f %.3f pos %.4f %.4f %.4f dir %.3f %.3f %.3f%s\n",
+                        v66, v19->type, v19->distance, moveDist,
+                        (v19->type & SITHCOLLISION_THING) ? -1 : (int)(v19->surface - sithWorld_g_pCurrentWorld->surfaces),
+                        v19->pThingCollided ? (int)(v19->pThingCollided - sithWorld_g_pCurrentWorld->aThings) : -1,
+                        v19->hitNorm.x, v19->hitNorm.y, v19->hitNorm.z,
+                        v5->position.x, v5->position.y, v5->position.z, direction.x, direction.y, direction.z,
+                        bDwSkipHit ? " SKIP" : "");
+                }
+                if ( bDwSkipHit && sithCollision_bDwDebugColl != 2 ) // Added: DW_DEBUG_COLL=2 disables the rule (A/B tests)
+                {
+                    continue;
                 }
 
                 if ( v19->distance != 0.0 )
