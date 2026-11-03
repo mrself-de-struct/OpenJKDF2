@@ -28,6 +28,8 @@ sithPuppet* sithPuppet_New(SithThing *pThing);
 void sithPuppet_Free(SithThing *pThing);
 void sithPuppet_SetMoveMode(SithThing *pThing, int newMode);
 int sithPuppet_PlayMode(SithThing *pThing, signed int submode, rdPuppetTrackCallback_t pfCallback);
+int sithPuppet_DwAnim(int jkAnim); // Added: JK SITH_ANIM_* id -> DroidWorks slot (or -1)
+int sithPuppet_PlayModeJk(SithThing *pThing, int jkAnim, rdPuppetTrackCallback_t pfCallback); // Added
 int sithPuppet_PlayKey(rdPuppet *pPuppet, rdKeyframe *pTrack, int lowPriority, int highPriority, int flags, rdPuppetTrackCallback_t pfCallback);
 void sithPuppet_ResetTrack(SithThing *pThing);
 MATH_FUNC void sithPuppet_UpdatePuppet(SithThing *pThing, flex_t secDeltaTime);

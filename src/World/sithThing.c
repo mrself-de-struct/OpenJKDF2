@@ -1261,7 +1261,7 @@ void sithThing_AttachThingToSurface(SithThing* pThing, SithSurface *pSurface, in
             }
         }
         if ( pThing->pPuppetClass && pThing->moveType == SITH_MT_PHYSICS && (pThing->physicsParams.flags & SITH_PF_CROUCHING) == 0 )
-            sithPuppet_PlayMode(pThing, SITH_ANIM_LAND, 0);
+            sithPuppet_PlayModeJk(pThing, SITH_ANIM_LAND, 0);
         return;
     }
 }

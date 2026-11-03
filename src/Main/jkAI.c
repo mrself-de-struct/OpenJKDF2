@@ -178,7 +178,7 @@ LABEL_27:
     if ( (actor->flags & SITHAI_MODE_TARGETVISIBLE) != 0 )
     {
         sithSoundClass_PlayModeRandom(v7, SITH_SC_VICTORY);
-        sithPuppet_PlayMode(actor->thing, SITH_ANIM_VICTORY, 0);
+        sithPuppet_PlayModeJk(actor->thing, SITH_ANIM_VICTORY, 0);
     }
     result = 1;
     actor->flags = actor->flags & ~(SITHAI_MODE_TARGETVISIBLE|SITHAI_MODE_ACTIVE|SITHAI_MODE_TOUGHSKIN|SITHAI_MODE_ATTACKING) | SITHAI_MODE_SEARCHING;

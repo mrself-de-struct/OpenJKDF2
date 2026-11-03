@@ -54,7 +54,7 @@ void sithPlayerActions_Activate(SithThing *thing)
         v4 = sithCollision_FindSectorInRadius(thing->sector, &thing->position, &thingPos, 0.0);
         if ( v4 )
         {
-            v5 = sithPuppet_PlayMode(thing, SITH_ANIM_ACTIVATE, 0);
+            v5 = sithPuppet_PlayModeJk(thing, SITH_ANIM_ACTIVATE, 0);
             if ( sithMessage_g_outputstream && v5 >= 0 )
                 sithDSSThing_PlayKeyMode(thing, SITH_ANIM_ACTIVATE, thing->renderData.puppet->aTracks[v5].field_130, -1, 255);
             a6 = thing->moveSize - -0.1;

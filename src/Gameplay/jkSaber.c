@@ -316,9 +316,9 @@ void  jkSaber_UpdateCollision2(SithThing *pPlayerThing,rdVector3 *pSaberPos,rdVe
                     sithSoundClass_PlayModeRandom(pPlayerThing, SITH_SC_DEFLECTED);
 
                     if ( _frand() >= 0.5 )
-                        sithPuppet_PlayMode(resultThing, SITH_ANIM_BLOCK2, 0);
+                        sithPuppet_PlayModeJk(resultThing, SITH_ANIM_BLOCK2, 0);
                     else
-                        sithPuppet_PlayMode(resultThing, SITH_ANIM_BLOCK, 0);
+                        sithPuppet_PlayModeJk(resultThing, SITH_ANIM_BLOCK, 0);
 
                     jkSaber_SpawnSparks(playerInfo, &local_54, pSectorIter, SPARKTYPE_SABER);
 

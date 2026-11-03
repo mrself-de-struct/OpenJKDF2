@@ -926,7 +926,7 @@ void sithAI_Jump(SithAIControlBlock *actor, rdVector3 *pos, flex_t vel)
     actor->moveSpeed = 2.0;
     rdVector_Copy3(&actor->movePos, pos);
 
-    if ( sithPuppet_PlayMode(actor->thing, SITH_ANIM_JUMP, 0) < 0 )
+    if ( sithPuppet_PlayModeJk(actor->thing, SITH_ANIM_JUMP, 0) < 0 )
         sithPlayerActions_JumpWithVel(actor->thing, vel);
 
     actor->field_28C = sithTime_g_msecGameTime + 2000;

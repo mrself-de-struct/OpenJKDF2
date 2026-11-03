@@ -1,4 +1,5 @@
 #include "sithPuppet.h"
+#include "Main/Main.h" // Added: Main_bDroidWorks
 
 #include "General/stdMath.h"
 #include "General/stdHashtbl.h"
@@ -71,6 +72,55 @@ static const char* sithPuppet_animNames[43+2] = {
     "buttpunch"
 };
 
+// Added: DroidWorks' puppet submode table (DroidWorks.exe 0x52a1a0, 24 entries). Every
+// DroidWorks puppet class, the droid builder's merged keyframes (dwDroidStats) and the
+// mission cogs' PlayMode numbers use this numbering, not JK's.
+#define SITHPUPPET_DW_NUMANIMS 24
+static const char* sithPuppet_aDwAnimNames[SITHPUPPET_DW_NUMANIMS] = {
+    "--RESERVED--",
+    "stand", "walk", "run", "walkback", "strafeleft", "straferight",
+    "turnleft", "turnright", "lfunc", "rfunc", "leap", "rising", "drop",
+    "fall", "fidget", "fidget2", "dance", "rwalk", "rdance", "ltug", "rtug",
+    "attack", "death",
+};
+
+// Added: the DroidWorks slot for a JK SITH_ANIM_* id used by engine code, or -1 when
+// DroidWorks has no such animation (hit, land, block, ...).
+int sithPuppet_DwAnim(int jkAnim)
+{
+    if ( !Main_bDroidWorks )
+        return jkAnim;
+    switch ( jkAnim )
+    {
+        case SITH_ANIM_STAND:       return 1;
+        case SITH_ANIM_WALK:        return 2;
+        case SITH_ANIM_RUN:         return 3;
+        case SITH_ANIM_WALKBACK:    return 4;
+        case SITH_ANIM_STRAFELEFT:  return 5;
+        case SITH_ANIM_STRAFERIGHT: return 6;
+        case SITH_ANIM_TURNLEFT:    return 7;
+        case SITH_ANIM_TURNRIGHT:   return 8;
+        case SITH_ANIM_LEAP:        return 11;
+        case SITH_ANIM_RISING:      return 12;
+        case SITH_ANIM_DROP:        return 13;
+        case SITH_ANIM_FALL:        return 14;
+        case SITH_ANIM_FIDGET:      return 15;
+        case SITH_ANIM_FIDGET2:     return 16;
+        case SITH_ANIM_DEATH:
+        case SITH_ANIM_DEATH2:      return 23;
+        default:                    return -1;
+    }
+}
+
+// Added: sithPuppet_PlayMode for engine callers that pass a JK SITH_ANIM_* id.
+int sithPuppet_PlayModeJk(SithThing *pThing, int jkAnim, rdPuppetTrackCallback_t pfCallback)
+{
+    int submode = sithPuppet_DwAnim(jkAnim);
+    if ( submode < 0 )
+        return -1;
+    return sithPuppet_PlayMode(pThing, submode, pfCallback);
+}
+
 int sithPuppet_Startup()
 {
     sithPuppet_pClassHashtable = stdHashtbl_New(64);
@@ -79,9 +129,10 @@ int sithPuppet_Startup()
     if ( sithPuppet_pClassHashtable && sithPuppet_pKeyHashtable )
     {
         sithPuppet_pHashtblSubmodes = stdHashtbl_New(SITHPUPPET_NUMANIMS * 2);
-        for (int i = 1; i < SITHPUPPET_NUMANIMS; i++)
+        int numAnims = Main_bDroidWorks ? SITHPUPPET_DW_NUMANIMS : SITHPUPPET_NUMANIMS;
+        for (int i = 1; i < numAnims; i++)
         {
-            stdHashtbl_Add(sithPuppet_pHashtblSubmodes, sithPuppet_animNames[i], (void *)(intptr_t)i);
+            stdHashtbl_Add(sithPuppet_pHashtblSubmodes, Main_bDroidWorks ? sithPuppet_aDwAnimNames[i] : sithPuppet_animNames[i], (void *)(intptr_t)i);
         }
         return 1;
     }
@@ -463,7 +514,10 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     // MOTS also routes actors with the SITH_AF_ELECTRICWHIP typeflag through the submerged
     // animation set (majorMode = field_0 + 3) even when not underwater. Without this, such MOTS
     // actors play the wrong animation set. Gated on MoTS so JK behavior is unchanged.
-    if ( (pThing->sector && (pThing->sector->flags & SITH_SECTOR_UNDERWATER) != 0)
+    // DroidWorks (DroidWorks.exe 0x45547b): a player droid never takes the underwater
+    // animation set (it walks the bottom), and its walk/run threshold is 0.6 x maxVelocity.
+    if ( (pThing->sector && (pThing->sector->flags & SITH_SECTOR_UNDERWATER) != 0
+          && !(Main_bDroidWorks && pThing->type == SITH_THING_PLAYER))
       || (Main_bMotsCompat && (pThing->actorParams.flags & SITH_AF_ELECTRICWHIP) != 0) )
     {
         v11 = pThing->pPuppetClass;
@@ -483,7 +537,7 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     else
     {
         if ( pThing->type == SITH_THING_PLAYER )
-            v23 = 1.0;
+            v23 = Main_bDroidWorks ? pThing->physicsParams.maxVelocity * 0.6 : 1.0;
         v11 = pThing->pPuppetClass;
         if ( v11 )
         {
@@ -586,13 +640,24 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     }
 LABEL_51:
     v18 = pThing->puppet;
+    int bFall = (anim == SITH_ANIM_FALL);
+    if ( Main_bDroidWorks )
+    {
+        // DroidWorks slot numbering; a missing run animation falls back to walk
+        // (DroidWorks.exe 0x45564e).
+        anim = sithPuppet_DwAnim(anim);
+        if ( anim < 0 )
+            anim = 1;
+        if ( anim == 3 && !v11->modes[v18->majorMode].keyframe[3].keyframe )
+            anim = 2;
+    }
     v18->currentAnimation = anim;
 
     v19 = &v11->modes[v18->majorMode].keyframe[anim];
 
     if ( v19 != v18->playingAnim )
     {
-        if ( anim == SITH_ANIM_FALL )
+        if ( bFall )
         {
             if ( (pThing->flags & SITH_TF_DEAD) != 0 || (pThing->actorParams.flags & SITH_AF_SCREAMING) != 0 )
                 goto LABEL_60;
@@ -868,7 +933,11 @@ void sithPuppet_PlayFidgetMode(SithThing *pThing)
     SITH_ASSERTREL(pThing); // Added: ported from OpenJones3D sithPuppet_PlayFidgetMode
     SITH_ASSERTREL(pThing->puppet); // Added: ported from OpenJones3D sithPuppet_PlayFidgetMode
     puppet = pThing->puppet;
-    if ( puppet->currentTrack < 0 && puppet->currentAnimation == 1 && (flex_d_t)(unsigned int)puppet->animStartedMs - -30000.0 < (flex_d_t)sithTime_g_msecGameTime )
+    // DroidWorks (DroidWorks.exe 0x4551b0): the player droid fidgets after 2 s, others after 30 s.
+    flex_d_t fidgetDelayMs = (Main_bDroidWorks && pThing == sithPlayer_g_pLocalPlayerThing) ? 2000.0 : 30000.0;
+    int fidgetAnim = sithPuppet_DwAnim(SITH_ANIM_FIDGET);
+    int fidget2Anim = sithPuppet_DwAnim(SITH_ANIM_FIDGET2);
+    if ( puppet->currentTrack < 0 && puppet->currentAnimation == 1 && (flex_d_t)(unsigned int)puppet->animStartedMs + fidgetDelayMs < (flex_d_t)sithTime_g_msecGameTime )
     {
         v2 = _frand();
         if ( v2 >= 0.3 )
@@ -877,13 +946,13 @@ void sithPuppet_PlayFidgetMode(SithThing *pThing)
             {
                 v8 = pThing->pPuppetClass;
                 if ( !v8
-                  || (v9 = &v8->modes[pThing->puppet->majorMode].keyframe[SITH_ANIM_FIDGET2], !v9->keyframe)
+                  || (v9 = &v8->modes[pThing->puppet->majorMode].keyframe[fidget2Anim], !v9->keyframe)
                   || (v10 = sithPuppet_PlayKey(
                                 pThing->renderData.puppet,
                                 v9->keyframe,
                                 v9->lowPri,
                                 v9->highPri,
-                                v8->modes[pThing->puppet->majorMode].keyframe[SITH_ANIM_FIDGET2].flags,
+                                v8->modes[pThing->puppet->majorMode].keyframe[fidget2Anim].flags,
                                 0),
                       v10 < 0) )
                 {
@@ -896,13 +965,13 @@ void sithPuppet_PlayFidgetMode(SithThing *pThing)
         {
             v3 = pThing->pPuppetClass;
             if ( !v3
-              || (v4 = &v3->modes[pThing->puppet->majorMode].keyframe[SITH_ANIM_FIDGET], !v4->keyframe)
+              || (v4 = &v3->modes[pThing->puppet->majorMode].keyframe[fidgetAnim], !v4->keyframe)
               || (v5 = sithPuppet_PlayKey(
                            pThing->renderData.puppet,
                            v4->keyframe,
                            v4->lowPri,
                            v4->highPri,
-                           v3->modes[pThing->puppet->majorMode].keyframe[SITH_ANIM_FIDGET].flags,
+                           v3->modes[pThing->puppet->majorMode].keyframe[fidgetAnim].flags,
                            0),
                   v5 < 0) )
             {

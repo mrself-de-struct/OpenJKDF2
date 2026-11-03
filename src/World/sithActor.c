@@ -209,7 +209,7 @@ pActor->actorParams.health -= damage;
     {
 LABEL_32:
         if ( pActor->pPuppetClass && pActor != receiver_ && damage * 0.05 > _frand() )
-            sithPuppet_PlayMode(pActor, SITH_ANIM_HIT, 0);
+            sithPuppet_PlayModeJk(pActor, SITH_ANIM_HIT, 0);
         sithActor_PlayDamageSoundFx(pActor, damage, damageType);
         return damage;
     }
@@ -317,9 +317,9 @@ void sithActor_KillActor(SithThing *pThing, SithThing *pSrcThing, int damageType
                 {
                     sithPuppet_ResetTrack(pThing);
                     if ( pThing->actorParams.health >= -10.0 )
-                        pThing->puppet->field_18 = sithPuppet_PlayMode(pThing, SITH_ANIM_DEATH, 0);
+                        pThing->puppet->field_18 = sithPuppet_PlayModeJk(pThing, SITH_ANIM_DEATH, 0);
                     else
-                        pThing->puppet->field_18 = sithPuppet_PlayMode(pThing, SITH_ANIM_DEATH2, 0);
+                        pThing->puppet->field_18 = sithPuppet_PlayModeJk(pThing, SITH_ANIM_DEATH2, 0);
                 }
             }
         }
@@ -516,9 +516,9 @@ int sithActor_thing_anim_blocked(SithThing *a1, SithThing *thing2, SithCollision
     a1->orient.uvec.z = a1->orient.lvec.y * a1->orient.rvec.x - a1->orient.rvec.y * a1->orient.lvec.x;
     sithSoundClass_PlayModeRandom(a1, SITH_SC_DEFLECTED);
     if ( thing2->orient.uvec.x * a1a.x + thing2->orient.uvec.y * a1a.y + thing2->orient.uvec.z * a1a.z <= 0.0 )
-        sithPuppet_PlayMode(thing2, SITH_ANIM_BLOCK2, 0);
+        sithPuppet_PlayModeJk(thing2, SITH_ANIM_BLOCK2, 0);
     else
-        sithPuppet_PlayMode(thing2, SITH_ANIM_BLOCK, 0);
+        sithPuppet_PlayModeJk(thing2, SITH_ANIM_BLOCK, 0);
     a1->actorParams.flags &= ~SITH_AF_CANROTATEHEAD;
     a1->pParent = thing2;
     a1->parentSignature = thing2->signature;

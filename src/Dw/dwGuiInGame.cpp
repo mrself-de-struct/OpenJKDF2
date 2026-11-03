@@ -1007,6 +1007,10 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             if (pThing->pSoundClass->entries[SITH_SC_LWALKHARD] != NULL)
                 walkIdx = sithSoundMixer_GetThingSoundIdx(pThing, pThing->pSoundClass->entries[SITH_SC_LWALKHARD]->sound);
         }
+        int animTrk = pThing->puppet ? pThing->puppet->otherTrack : -1;
+        stdPlatform_Printf("DEBUGSCRIPT: anim %d trk %d frame %.2f fidget %d\n", pThing->puppet ? pThing->puppet->currentAnimation : -1, animTrk,
+                           (animTrk >= 0 && pThing->renderData.puppet) ? pThing->renderData.puppet->aTracks[animTrk].field_120 : -1.0f,
+                           pThing->puppet ? pThing->puppet->currentTrack : -1);
         stdPlatform_Printf("DEBUGSCRIPT: t=%u dt %.4f pf 0x%x pos %.3f %.3f %.3f vel %.3f %.3f %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f run %d walk %d bat %.2f lasers %d lvec %.2f %.2f %.2f\n",
                            now, sithTime_g_frameTimeFlex, pThing->physicsParams.flags, pThing->position.x, pThing->position.y, pThing->position.z,
                            pThing->physicsParams.vel.x, pThing->physicsParams.vel.y, pThing->physicsParams.vel.z,

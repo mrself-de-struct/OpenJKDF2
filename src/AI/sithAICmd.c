@@ -506,7 +506,7 @@ int sithAICmd_LobFire(SithAIControlBlock *pLocal, SithAIInstinct *pInstinct, Sit
     if ( (pLocal->flags & SITHAI_MODE_TARGETVISIBLE) != 0 )
     {
         sithSoundClass_PlayModeRandom(v6, SITH_SC_VICTORY);
-        sithPuppet_PlayMode(pLocal->thing, SITH_ANIM_VICTORY, 0);
+        sithPuppet_PlayModeJk(pLocal->thing, SITH_ANIM_VICTORY, 0);
 
         // Added: co-op
         if (sithNet_isMulti && sithNet_MultiModeFlags & MULTIMODEFLAG_COOP) {
@@ -631,7 +631,7 @@ int sithAICmd_PrimaryFire(SithAIControlBlock *pLocal, SithAIInstinct *pInstinct,
     if ( (pLocal->flags & SITHAI_MODE_TARGETVISIBLE) != 0 )
     {
         sithSoundClass_PlayModeRandom(v7, SITH_SC_VICTORY);
-        sithPuppet_PlayMode(pLocal->thing, SITH_ANIM_VICTORY, 0);
+        sithPuppet_PlayModeJk(pLocal->thing, SITH_ANIM_VICTORY, 0);
 
         // Added: co-op
         if (sithNet_isMulti && sithNet_MultiModeFlags & MULTIMODEFLAG_COOP) {
