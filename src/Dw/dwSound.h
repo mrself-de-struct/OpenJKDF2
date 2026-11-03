@@ -42,6 +42,12 @@ extern "C" {
 // Streamed samples: 0x4000-byte ring in the binary, refilled 0x2000 at a time.
 #define DWSOUND_STREAM_RING_LEN  0x4000
 #define DWSOUND_STREAM_CHUNK_LEN 0x2000
+// Note: adaptation — the ring slices are separate OpenAL buffers queued on one
+// source. The binary's DSound ring kept up to two slices ahead of the play
+// cursor; here more are kept queued so a stalled worker tick (file loads,
+// main-thread holds of the dwSound lock) cannot starve the source.
+#define DWSOUND_STREAM_CHUNKS       8
+#define DWSOUND_STREAM_QUEUE_TARGET 6 // chunks kept queued (<= CHUNKS-2 so the slice being refilled is never still queued)
 
 // Base sample: a named stdSound buffer with a volume envelope
 // (curVolume lerps startVolume -> targetVolume over fadeStartSec..fadeEndSec).
@@ -93,14 +99,12 @@ struct dwSoundSampleStream : dwSoundSample
     int bytesRemaining;        // 0x40: unread bytes until the loop wrap
 
     // Note: adaptation fields (OpenAL queue streaming; see dwSound.cpp):
-    stdSound_buffer_t* apChunks[4]; // ring halves as own buffers (2 -> 4 for refill margin, BUG 13)
+    stdSound_buffer_t* apChunks[DWSOUND_STREAM_CHUNKS]; // ring slices as own buffers
     int chunkFlip;                  // next chunk index to fill
-    float fChunkSec;                // seconds of audio per chunk
-    float fQueueEndSec;             // manager clockSec when queued audio runs out
 
     dwSoundSampleStream(const char* pName);
     virtual ~dwSoundSampleStream();         // dwSoundSampleStream_DtorDelete
-    virtual void Update();                  // refill to stay >= two chunks ahead
+    virtual void Update();                  // refill from the source's real queue depth
     void FillRing();                        // stage+queue the next 0x2000
 };
 

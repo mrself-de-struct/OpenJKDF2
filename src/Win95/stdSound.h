@@ -197,6 +197,10 @@ int stdSound_BufferReset(stdSound_buffer_t* sound);
 int stdSound_BufferPlay(stdSound_buffer_t* buf, int loop);
 int stdSound_BufferQueueAfterAnother(stdSound_buffer_t* bufPrev, stdSound_buffer_t* bufNext); // Added
 void stdSound_BufferUnqueueProcessed(stdSound_buffer_t* buf); // Added
+// Added: chunks queued on a streaming source that have not finished playing
+// (the one currently playing included); -1 when the backend cannot tell
+// (headless, no source yet, or no queue support).
+int stdSound_BufferGetQueuedPending(stdSound_buffer_t* buf);
 void stdSound_BufferSetPan(stdSound_buffer_t* a1, flex_t a2);
 void stdSound_BufferSetFrequency(stdSound_buffer_t* a1, int a2);
 stdSound_buffer_t* stdSound_BufferDuplicate(stdSound_buffer_t* sound);

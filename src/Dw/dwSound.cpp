@@ -314,13 +314,9 @@ dwSoundSampleStream::dwSoundSampleStream(const char* pName)
     this->ringWritePos = 0;
     this->loopDataLen = 0;
     this->bytesRemaining = 0;
-    this->apChunks[0] = NULL;
-    this->apChunks[1] = NULL;
-    this->apChunks[2] = NULL;
-    this->apChunks[3] = NULL;
+    for (int i = 0; i < DWSOUND_STREAM_CHUNKS; i++)
+        this->apChunks[i] = NULL;
     this->chunkFlip = 0;
-    this->fChunkSec = 0.0f;
-    this->fQueueEndSec = 0.0f;
 
     dwSound_Lock();
     if (this->pBuffer != NULL)
@@ -337,17 +333,12 @@ dwSoundSampleStream::dwSoundSampleStream(const char* pName)
 
             // Note: adaptation — the binary streamed into one 0x4000 DSound
             // ring via positional Lock; here the 0x2000 ring slices are
-            // separate chunk buffers queued onto pBuffer's source, and
-            // consumption is tracked by wall-clock (no play cursor in the
-            // OpenAL stdSound). Four chunks (not two) so the slice being
-            // refilled is always long detached from the source (BUG 13).
-            this->apChunks[0] = stdSound_BufferCreate(bStereo, nSamplesPerSec, (uint16_t)bitsPerSample, DWSOUND_STREAM_CHUNK_LEN);
-            this->apChunks[1] = stdSound_BufferCreate(bStereo, nSamplesPerSec, (uint16_t)bitsPerSample, DWSOUND_STREAM_CHUNK_LEN);
-            this->apChunks[2] = stdSound_BufferCreate(bStereo, nSamplesPerSec, (uint16_t)bitsPerSample, DWSOUND_STREAM_CHUNK_LEN);
-            this->apChunks[3] = stdSound_BufferCreate(bStereo, nSamplesPerSec, (uint16_t)bitsPerSample, DWSOUND_STREAM_CHUNK_LEN);
-            uint32_t bytesPerSec = nSamplesPerSec * (bStereo ? 2u : 1u) * ((uint32_t)bitsPerSample / 8u);
-            if (bytesPerSec != 0)
-                this->fChunkSec = (float)DWSOUND_STREAM_CHUNK_LEN / (float)bytesPerSec;
+            // separate chunk buffers queued onto pBuffer's source, and the
+            // refill decision reads the source's real queue depth (the
+            // stand-in for the DSound play cursor; see Update). The slice
+            // being refilled is always long detached from the source (BUG 13).
+            for (int i = 0; i < DWSOUND_STREAM_CHUNKS; i++)
+                this->apChunks[i] = stdSound_BufferCreate(bStereo, nSamplesPerSec, (uint16_t)bitsPerSample, DWSOUND_STREAM_CHUNK_LEN);
         }
     }
     dwSound_Unlock();
@@ -360,7 +351,7 @@ dwSoundSampleStream::~dwSoundSampleStream()
         dwMain_pHS->fileClose(this->hFile);
     // Note: adaptation — release the chunk buffers (the binary had no
     // per-chunk objects; the ring died with pBuffer in the base dtor).
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < DWSOUND_STREAM_CHUNKS; i++)
     {
         if (this->apChunks[i] != NULL)
             stdSound_BufferRelease(this->apChunks[i]);
@@ -392,7 +383,7 @@ void dwSoundSampleStream::FillRing()
         // is a silent OpenAL no-op, so without this the chunk kept its first
         // fill forever and the stream looped the first 0x4000 bytes.
         stdSound_BufferUnqueueProcessed(this->pBuffer);
-        this->chunkFlip = (this->chunkFlip + 1) & 3;
+        this->chunkFlip = (this->chunkFlip + 1) % DWSOUND_STREAM_CHUNKS;
         maxSize = 0;
         pDst = (uint8_t*)stdSound_BufferSetData(pChunk, DWSOUND_STREAM_CHUNK_LEN, &maxSize);
         if (pDst != NULL)
@@ -425,16 +416,10 @@ void dwSoundSampleStream::FillRing()
                 want -= (uint32_t)got;
             }
             stdSound_BufferUnlock(pChunk, pDst, maxSize);
+            // Queues the slice and (re)starts the source if it is not
+            // playing — so a starved source resumes instead of dying, the
+            // way the binary's DSound ring simply kept cycling.
             stdSound_BufferQueueAfterAnother(this->pBuffer, pChunk);
-
-            // Note: adaptation — wall-clock bookkeeping standing in for the
-            // DSound play cursor (see Update).
-            if (dwSound_pManagerCached != NULL)
-            {
-                if (this->fQueueEndSec < dwSound_pManagerCached->clockSec)
-                    this->fQueueEndSec = dwSound_pManagerCached->clockSec;
-                this->fQueueEndSec += this->fChunkSec;
-            }
         }
     }
     dwSound_Unlock();
@@ -444,21 +429,38 @@ void dwSoundSampleStream::FillRing()
 void dwSoundSampleStream::Update()
 {
     // The binary read the play cursor out of stdSound_IsPlaying and refilled
-    // when fewer than 0x2000 valid bytes remained ahead of it. The repo
-    // stdSound has no play cursor, so the same test is done against the
-    // manager clock — topped up to TWO chunks ahead (not one) so the chunk
-    // being refilled has already rotated off the source (BUG 13).
-    if (stdSound_IsPlaying(this->pBuffer, NULL) == 0)
+    // when fewer than 0x2000 valid bytes remained ahead of it. Here the
+    // source's own queue depth plays that role: top up until
+    // DWSOUND_STREAM_QUEUE_TARGET slices are queued and unplayed.
+    //
+    // Note: an earlier adaptation paced the refill off the manager's SDL
+    // wall clock instead. The audio device clock drifts against it, so after
+    // some minutes the estimate was off by whole slices: either a slice still
+    // attached to the source was re-uploaded (a silent OpenAL no-op, so the
+    // old slice replayed — garbled loop), or the queue ran dry, the source
+    // stopped and the music was reaped for good.
+    int pending = stdSound_BufferGetQueuedPending(this->pBuffer);
+    if (pending < 0)
     {
-        this->bPlaying = 0;
+        // No queue information (headless / backend without streaming): fall
+        // back to the plain "stopped -> finished" test.
+        if (stdSound_IsPlaying(this->pBuffer, NULL) == 0)
+            this->bPlaying = 0;
     }
-    else if (this->fChunkSec > 0.0f && dwSound_pManagerCached != NULL)
+    else
     {
-        int guard = 4; // bounded: never queue more chunks than we own
-        while (guard-- > 0 &&
-               (this->fQueueEndSec - dwSound_pManagerCached->clockSec) < 2.0f * this->fChunkSec)
+        int guard = DWSOUND_STREAM_QUEUE_TARGET; // bounded: never more slices than we own
+        if (pending == 0 && dwGuiInGame_VoiceDebug())
+            stdPlatform_Printf("DWSOUND: stream %s underrun t=%.3f\n", this->name.pBuffer ? this->name.pBuffer : "?",
+                               dwSound_pManagerCached ? dwSound_pManagerCached->clockSec : 0.0f);
+        while (guard-- > 0 && pending < DWSOUND_STREAM_QUEUE_TARGET)
         {
-            this->FillRing();
+            if (dwGuiInGame_VoiceDebug())
+                stdPlatform_Printf("DWSOUND: stream fill t=%.3f pending %d slot %d remain %d\n",
+                                   dwSound_pManagerCached ? dwSound_pManagerCached->clockSec : 0.0f,
+                                   pending, this->chunkFlip, this->bytesRemaining);
+            this->FillRing(); // also restarts the source after an underrun
+            pending++;
         }
     }
     this->ProcessFade();

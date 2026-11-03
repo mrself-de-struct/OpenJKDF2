@@ -348,6 +348,11 @@ void stdSound_BufferUnqueueProcessed(stdSound_buffer_t* buf)
 {
 }
 
+int stdSound_BufferGetQueuedPending(stdSound_buffer_t* buf)
+{
+    return -1;
+}
+
 void stdSound_BufferRelease(stdSound_buffer_t* sound)
 {   
     stdSound_BufferStop(sound);

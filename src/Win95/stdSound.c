@@ -495,6 +495,21 @@ void stdSound_BufferUnqueueProcessed(stdSound_buffer_t* buf)
     }
 }
 
+int stdSound_BufferGetQueuedPending(stdSound_buffer_t* buf)
+{
+    ALint queued = 0;
+    ALint processed = 0;
+    ALint source_type = AL_UNDETERMINED;
+    if (Main_bHeadless) return -1;
+    if (!buf || !buf->source) return -1;
+
+    alGetSourcei(buf->source, AL_SOURCE_TYPE, &source_type);
+    if (source_type != AL_STREAMING) return -1;
+    alGetSourcei(buf->source, AL_BUFFERS_QUEUED, &queued);
+    alGetSourcei(buf->source, AL_BUFFERS_PROCESSED, &processed);
+    return queued - processed;
+}
+
 void stdSound_BufferRelease(stdSound_buffer_t* sound)
 {
     ALint source_state;
@@ -819,6 +834,11 @@ int stdSound_BufferQueueAfterAnother(stdSound_buffer_t* bufPrev, stdSound_buffer
 
 void stdSound_BufferUnqueueProcessed(stdSound_buffer_t* buf)
 {
+}
+
+int stdSound_BufferGetQueuedPending(stdSound_buffer_t* buf)
+{
+    return -1;
 }
 
 void stdSound_BufferRelease(stdSound_buffer_t* sound)
