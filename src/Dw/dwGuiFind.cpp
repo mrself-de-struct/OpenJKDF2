@@ -304,10 +304,23 @@ static void dwGuiFind_ScanTopics(dwGuiFindScrollBox* pBox, const char* pExt)
     files.Free();
 }
 
-// The dwGuiFind_OnActivate reopen body (composite the parent snapshot into the
-// background, seed the slide-in, set the ambient volume). Called by Activate()
-// and by the OnMessage reopen commands. Binary dwGuiFind_OnActivate (does NOT re-run base
-// Activate; base is chained from Activate() to lazy-load the controls).
+// Is the FINDBOX image still linked in the controls list? (Once the slide-in
+// settles, Update bakes it into the background and unlinks it.)
+static dwListNode* dwGuiFind_FindBoxNode(dwGuiFind* pThis)
+{
+    dwList* pList = &pThis->controls.children;
+    for (dwListNode* pNode = pList->pSentinel->pNext; pNode != pList->pSentinel; pNode = pNode->pNext)
+        if (pNode->pData == pThis->pBgImageControl)
+            return pNode;
+    return NULL;
+}
+
+// Binary dwGuiFind_OnActivate (0x4128e0) — despite the map name this BEGINS THE
+// SLIDE-OUT: restore the clean parent snapshot into the background (the dialog
+// art was baked into it when the slide-in settled), re-link the FINDBOX image
+// at the head of the controls list so it slides out with the rest, seed the
+// slide (+320 px/s) and fade the panel ambience out. Called by the Go/Exit
+// commands; the panel closes (RequestAdvance) when the slide completes.
 static void dwGuiFind_DoReopen(dwGuiFind* pThis)
 {
     if (pThis->pBgImage != NULL && pThis->pParent != NULL)
@@ -322,9 +335,40 @@ static void dwGuiFind_DoReopen(dwGuiFind* pThis)
         pThis->pParent->Blit(&bits, 0, 0, NULL); // this = SOURCE (the snapshot)
         pThis->pBgImage->Unlock();
     }
+    if (pThis->pBgImageControl != NULL && dwGuiFind_FindBoxNode(pThis) == NULL)
+        pThis->controls.children.InsertAfter(pThis->controls.children.pSentinel, pThis->pBgImageControl);
     pThis->slidePos = 0.0f;
     pThis->slideDir = 320.0f;
     dwSound_SetSampleVolume("WLSPanelAmb.WAV", 0.0f, (float)pThis->bottom / 320.0f);
+}
+
+// Delete every control (the binary rebuilds the whole panel from find.ifc on
+// each activation so the topic list and query text are fresh). The FINDBOX
+// image may already be unlinked (baked); it is owned here either way.
+static void dwGuiFind_DeleteControls(dwGuiFind* pThis)
+{
+    dwList* pList = &pThis->controls.children;
+    int bBoxLinked = 0;
+    dwListNode* pNode = pList->pSentinel->pNext;
+    while (pNode != pList->pSentinel)
+    {
+        dwListNode* pNext = pNode->pNext;
+        dwWidget* pWidget = (dwWidget*)pNode->pData;
+        if (pWidget == pThis->pBgImageControl)
+            bBoxLinked = 1;
+        pList->UnlinkFreeNode(pNode);
+        if (pWidget != NULL)
+            delete pWidget;
+        pNode = pNext;
+    }
+    if (!bBoxLinked && pThis->pBgImageControl != NULL)
+        delete pThis->pBgImageControl;
+    pThis->pBgImageControl = NULL;
+    pThis->pQueryEntry = NULL;
+    pThis->pScrollBar = NULL;
+    pThis->pResultBox = NULL;
+    pThis->pScrollUp = NULL;
+    pThis->pScrollDown = NULL;
 }
 
 // dwGuiFind_Ctor
@@ -346,21 +390,35 @@ dwGuiFind::dwGuiFind(dwImage* pBgSnapshot)
 // dwGuiFind_Dtor
 dwGuiFind::~dwGuiFind()
 {
-    // The tracked controls (FINDBOX/QUERY/SCROLLBOX/FILESCROLLBAR/scroll
-    // buttons) are children of the base screen's `controls` group and die in
-    // its dtor. (The binary manually unlinked+deleted each before the base
-    // dtor; letting the group own them is the project convention — see
-    // dwGuiMissionMap — and avoids the binary's duplicate-node hazard.)
+    // The tracked controls (QUERY/SCROLLBOX/FILESCROLLBAR/scroll buttons) are
+    // children of the base screen's `controls` group and die in its dtor. The
+    // FINDBOX image is unlinked from that group once the slide-in settles
+    // (Update bakes it into the background), so delete it here in that case.
+    if (this->pBgImageControl != NULL && dwGuiFind_FindBoxNode(this) == NULL)
+        delete this->pBgImageControl;
+    this->pBgImageControl = NULL;
 }
 
-// vtbl(scn) +0x00 dwGuiFind_OnActivate
+// vtbl(scn) +0x00 — the segment Activate (binary 0x4129c0, unnamed in the
+// symbol map; the map's "dwGuiFind_OnActivate" is the slide-out starter above).
+// Rebuild the controls from find.ifc, fade the panel ambience in, park the
+// panel one screen height down and slide it in at 320 px/s; focus the query
+// box once it settles.
 int dwGuiFind::Activate()
 {
-    // Note: the binary's OnActivate does NOT chain the base; base Activate is
-    // chained here (guarded lazy LoadControls) so the FINDBOX/QUERY/SCROLLBOX
-    // controls actually get built. The Find-specific reopen work follows.
-    int ret = dwGuiScreen::Activate();
-    dwGuiFind_DoReopen(this);
+    dwGuiFind_DeleteControls(this);
+    int ret = dwGuiScreen::Activate(); // reloads find.ifc (controls list is empty)
+    if (ret)
+    {
+        dwSound_PlayLooping("WLSPanelAmb.WAV");
+        dwSound_SetSampleVolume("WLSPanelAmb.WAV", 0.05f, 0.0f);
+        dwSound_SetSampleVolume("WLSPanelAmb.WAV", 1.0f, (float)this->bottom / 320.0f);
+        this->controls.Move(0, this->bottom);
+        this->slidePos = 0.0f;
+        this->slideDir = -320.0f;
+        this->bAutoEditQuery = 1;
+        this->RefreshScrollWidgets();
+    }
     return ret;
 }
 
@@ -381,38 +439,51 @@ int dwGuiFind::OnKey(int key, int repeat)
     return 0;
 }
 
-// vtbl +0x14 dwGuiFind_Update — drive the slide.
-// Note: the binary's per-frame block is heavily EH-mangled in the decompile;
-// the recoverable behavior (slide accumulation, completion -> RequestAdvance /
-// BeginEdit, group Move + Invalidate, then the group tick) is reproduced here.
-// The exact mid-slide pixel position is an approximation.
+// vtbl +0x14 dwGuiFind_Update (0x412730) — drive the slide. slidePos is the
+// elapsed time, slideDir the speed (+-320 px/s): the panel's y offset is
+// slideDir * slidePos (+ bottom while sliding in). A finished slide-in focuses
+// the query box, bakes the FINDBOX art into the background and unlinks it so
+// the list and query draw on top; a finished slide-out closes the panel.
 void dwGuiFind::Update(float dt)
 {
     if (this->slideDir != 0.0f)
     {
         this->slidePos += dt;
-        int16_t pos = (int16_t)this->slidePos;
+        int pos = (int)(this->slideDir * this->slidePos);
 
-        if (this->slideDir >= 0.0f)
+        if (this->slideDir < 0.0f)
         {
-            // sliding out: complete when the panel reaches the screen bottom
-            if (this->bottom <= pos)
+            pos += this->bottom;
+            if ((int16_t)pos <= 0)
             {
                 this->slideDir = 0.0f;
-                dwSegment_RequestAdvance();
-                pos = this->bottom;
-            }
-        }
-        else
-        {
-            // sliding in: complete when it reaches the start
-            if ((int16_t)(pos + this->bottom) < 1)
-            {
-                this->slideDir = 0.0f;
+                pos = 0;
                 if (this->bAutoEditQuery && this->pQueryEntry != NULL)
                     this->pQueryEntry->BeginEdit();
-                pos = 0;
+                this->controls.Move((int16_t)(-this->controls.left), (int16_t)(-this->controls.top));
+
+                if (this->pBgImage != NULL && this->pBgImageControl != NULL)
+                {
+                    void* pPixels = NULL;
+                    int stride = 0;
+                    dwImageBits bits;
+                    this->pBgImage->Lock(&pPixels, &stride);
+                    bits.pDesc = &this->pBgImage->desc;
+                    bits.pPixels = pPixels;
+                    bits.stride = stride;
+                    this->pBgImageControl->Draw(&bits, NULL);
+                    dwListNode* pNode = dwGuiFind_FindBoxNode(this);
+                    if (pNode != NULL)
+                        this->controls.children.UnlinkFreeNode(pNode);
+                    this->pBgImage->Unlock();
+                }
             }
+        }
+        else if ((int16_t)pos >= this->bottom)
+        {
+            pos = this->bottom;
+            this->slideDir = 0.0f;
+            dwSegment_RequestAdvance();
         }
 
         this->controls.Move((int16_t)(-this->controls.left), (int16_t)(pos - this->controls.top));
