@@ -388,6 +388,10 @@ int stdControl_ReadAxisRaw(int axisNum)
     return result;
 }
 
+// Added: debug key overlay (DW_DEBUG_SCRIPT key:<dik>@<from>-<to>): a nonzero entry
+// reads as a held key in stdControl_ReadKey/ReadKeyAsAxis. Headless test driver only.
+uint8_t stdControl_aDebugKeyForce[JK_NUM_KEYS];
+
 flex_t stdControl_ReadKeyAsAxis(int keyNum)
 {
     uint32_t v1; // eax
@@ -398,7 +402,7 @@ flex_t stdControl_ReadKeyAsAxis(int keyNum)
     v1 = stdControl_aKeyIdleTimes[keyNum];
     if ( !v1 )
     {
-        if ( stdControl_aKeyInfo[keyNum] )
+        if ( stdControl_aKeyInfo[keyNum] || stdControl_aDebugKeyForce[keyNum] )
         {
             v1 = stdControl_readDeltaTime;
         }
@@ -458,7 +462,7 @@ int stdControl_ReadKey(int keyNum, int *pOut)
             if ( stdControl_aKeyInfo[keyNum] )
                 stdControl_bControlsIdle = 0;
         }
-        result = stdControl_aKeyInfo[keyNum];
+        result = stdControl_aKeyInfo[keyNum] | stdControl_aDebugKeyForce[keyNum]; // Added: debug overlay
     }
     return result;
 }

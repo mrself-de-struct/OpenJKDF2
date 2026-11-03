@@ -8,6 +8,7 @@
 #include "World/sithSector.h"
 #include "World/jkPlayer.h"
 #include "Main/Main.h"
+#include "Dw/dwCog.h" // Added: dwCog_droidCaps (DroidWorks slope rule)
 #include "jk.h"
 
 void sithPhysics_FindFloor(SithThing *pThing, int bNoThingStateUpdate)
@@ -1054,7 +1055,32 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
     rdVector_Add3Acc(&pThing->physicsParams.vel, &vel_change);
     
     // Is the player climbing up/down a slope?
-    if ( pThing->type == SITH_THING_PLAYER
+    if ( Main_bDroidWorks )
+    {
+        // DroidWorks (DroidWorks.exe 0x45bf3b): the slope pull depends on the droid's
+        // locomotion. Treads (dwCog_droidCaps 0x80000) feel no pull on anything gentler
+        // than 75 degrees; legs get the usual fraction up to 30 degrees and FULL gravity
+        // beyond it, so a legged droid slides back down a steep incline. Only applied on
+        // a slope (the binary tests v158 < 1.0 strictly).
+        if ( pThing->type == SITH_THING_PLAYER
+          && (pThing->physicsParams.flags & SITH_PF_USEGRAVITY) != 0
+          && v158 < 1.0 )
+        {
+            flex_t v108 = stdMath_Clamp(1.0 - possibly_undef_2, 0.2, 0.8);
+            flex_t nz = rdVector_Dot3(&attachedNormal, &rdroid_zVector3);
+            if ( dwCog_droidCaps & 0x80000 )
+            {
+                if ( nz >= 0.258819 ) // cos 75
+                    v108 = 0.0;
+            }
+            else if ( nz < 0.866025 ) // cos 30
+            {
+                v108 = 1.0;
+            }
+            pThing->physicsParams.vel.z -= sithWorld_g_pCurrentWorld->gravity * secDeltaTime * v108;
+        }
+    }
+    else if ( pThing->type == SITH_THING_PLAYER
       && (pThing->physicsParams.flags & SITH_PF_USEGRAVITY) != 0
       && v158 <= 1.0
       && (possibly_undef_2 < 0.8 || !rdVector_IsZero3(&pThing->physicsParams.vel)) )
@@ -1157,7 +1183,9 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
             v131 = orig_v131;
         }
 
-        if ( (pThing->physicsParams.flags & SITH_PF_800) != 0 )
+        // DroidWorks (DroidWorks.exe 0x45c289) always corrects along the attached
+        // surface's normal; the vertical variant for SITH_PF_800 things is JK-only.
+        if ( (pThing->physicsParams.flags & SITH_PF_800) != 0 && !Main_bDroidWorks )
         {
             rdVector_ScaleAdd3Acc(&pThing->physicsParams.deltaVelocity, &rdroid_zVector3, -v131);
         }

@@ -852,7 +852,7 @@ void dwGuiInGame::Resume()
 // per-frame mission tick. See the FIDELITY NOTE (movement-sound +
 // physics reads touch DW-forked SithThing fields; the gauge/chatter/energy/
 // death/voice logic is preserved).
-// Added: DW_DEBUG_SCRIPT="tp:x,y,z[,yaw]@ms;act:<surface>@ms;trace:<ms>;inv:<bin>,<count>" — headless test
+// Added: DW_DEBUG_SCRIPT="tp:x,y,z[,yaw]@ms;act:<surface>@ms;trace:<ms>;inv:<bin>,<count>;key:<dik>@<from>-<to>" — headless test
 // driver for mission mechanics: teleport the droid at a game time, send ACTIVATE to a
 // surface at a game time, and/or print the droid's position every <ms>. No effect unset.
 static void dwGuiInGame_DebugScript(SithThing* pThing)
@@ -866,6 +866,9 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static unsigned actMs = 0;
     static unsigned traceMs = 0, nextTrace = 0;
     static int invBin[8], invCount[8], numInv = 0, bInvDone = 0;
+    static int keyCode[4]; static unsigned keyFrom[4], keyTo[4]; static int numKeys = 0;
+    static int mvThing = -1, bMvDone = 0; static float mvPos[3]; static unsigned mvMs = 0;
+    extern uint8_t stdControl_aDebugKeyForce[];
     if (!bParsed)
     {
         bParsed = 1;
@@ -885,6 +888,10 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
                 ;
             else if (numInv < 8 && sscanf(pTok, "inv:%d,%d", &invBin[numInv], &invCount[numInv]) == 2)
                 numInv++;
+            else if (numKeys < 4 && sscanf(pTok, "key:%i@%u-%u", &keyCode[numKeys], &keyFrom[numKeys], &keyTo[numKeys]) == 3)
+                numKeys++;
+            else if (sscanf(pTok, "mv:%d,%f,%f,%f@%u", &mvThing, &mvPos[0], &mvPos[1], &mvPos[2], &mvMs) == 5)
+                ;
             else
                 sscanf(pTok, "trace:%u", &traceMs);
         }
@@ -913,6 +920,30 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             }
             sithPhysics_FindFloor(pThing, 1);
         }
+    }
+    if (mvThing >= 0 && !bMvDone && now >= mvMs)
+    {
+        // mv:<thing>,x,y,z@ms — relocate a world thing (e.g. a movable incline) for a test
+        bMvDone = 1;
+        if (mvThing < (int)sithWorld_g_pCurrentWorld->numThings)
+        {
+            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[mvThing];
+            rdVector3 pos = { mvPos[0], mvPos[1], mvPos[2] };
+            SithSector* pSec = sithSector_FindSectorAtPos(sithWorld_g_pCurrentWorld, &pos);
+            stdPlatform_Printf("DEBUGSCRIPT: mv thing %d -> %f %f %f sector %d\n", mvThing, pos.x, pos.y, pos.z,
+                               pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1);
+            if (pSec != NULL)
+            {
+                rdVector_Copy3(&pT->position, &pos);
+                sithThing_SetSector(pT, pSec, 0);
+            }
+        }
+    }
+    for (int i = 0; i < numKeys; i++)
+    {
+        // key:<dik>@<from>-<to> — hold a DirectInput key (e.g. 0xc8 = up arrow) for a game-time window
+        if (keyCode[i] >= 0 && keyCode[i] < 256)
+            stdControl_aDebugKeyForce[keyCode[i]] = (now >= keyFrom[i] && now < keyTo[i]) ? 1 : 0;
     }
     if (numInv > 0 && !bInvDone)
     {
@@ -945,8 +976,8 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             if (pThing->pSoundClass->entries[SITH_SC_LWALKHARD] != NULL)
                 walkIdx = sithSoundMixer_GetThingSoundIdx(pThing, pThing->pSoundClass->entries[SITH_SC_LWALKHARD]->sound);
         }
-        stdPlatform_Printf("DEBUGSCRIPT: t=%u pos %.3f %.3f %.3f vel %.3f %.3f %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f run %d walk %d bat %.2f lasers %d lvec %.2f %.2f %.2f\n",
-                           now, pThing->position.x, pThing->position.y, pThing->position.z,
+        stdPlatform_Printf("DEBUGSCRIPT: t=%u dt %.4f pf 0x%x pos %.3f %.3f %.3f vel %.3f %.3f %.3f sector %d attach 0x%x secflags 0x%x thrust.z %.2f mass %.1f run %d walk %d bat %.2f lasers %d lvec %.2f %.2f %.2f\n",
+                           now, sithTime_g_frameTimeFlex, pThing->physicsParams.flags, pThing->position.x, pThing->position.y, pThing->position.z,
                            pThing->physicsParams.vel.x, pThing->physicsParams.vel.y, pThing->physicsParams.vel.z,
                            pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1,
                            pThing->attach_flags, pSec ? pSec->flags : 0, pSec ? pSec->thrust.z : 0.0f,
