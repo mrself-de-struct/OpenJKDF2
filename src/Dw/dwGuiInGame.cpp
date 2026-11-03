@@ -794,6 +794,13 @@ void dwGuiInGame::Deactivate()
 {
     dwDisplay_bHwScene = 0; // Added: the GL scene FBO is stale from here on (see dwDisplay.h)
     dwDisplay_BlendMaskClear();
+    {
+        // Added: drop the mission's palette effects from the GL world shader so the
+        // workshop views are not drawn through a stale filter/white-out.
+        stdPalEffect noEffect;
+        stdPalEffects_ResetEffect(&noEffect);
+        rdSetColorEffects(&noEffect);
+    }
     if (this->deathFadeHandle >= 0)
     {
         stdPalEffects_FreeRequest(this->deathFadeHandle);
@@ -868,6 +875,7 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static int invBin[8], invCount[8], numInv = 0, bInvDone = 0;
     static int keyCode[4]; static unsigned keyFrom[4], keyTo[4]; static int numKeys = 0;
     static int mvThing = -1, bMvDone = 0; static float mvPos[3]; static unsigned mvMs = 0;
+    static unsigned irMs = 0; static int bIrDone = 0, irAdd = 0; // ir:<ms>[,<add>] = what the headlight cog does
     extern uint8_t stdControl_aDebugKeyForce[];
     if (!bParsed)
     {
@@ -891,6 +899,8 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             else if (numKeys < 4 && sscanf(pTok, "key:%i@%u-%u", &keyCode[numKeys], &keyFrom[numKeys], &keyTo[numKeys]) == 3)
                 numKeys++;
             else if (sscanf(pTok, "mv:%d,%f,%f,%f@%u", &mvThing, &mvPos[0], &mvPos[1], &mvPos[2], &mvMs) == 5)
+                ;
+            else if (sscanf(pTok, "ir:%u,%d", &irMs, &irAdd) == 2 || sscanf(pTok, "ir:%u", &irMs) == 1)
                 ;
             else
                 sscanf(pTok, "trace:%u", &traceMs);
@@ -964,6 +974,27 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
         if (actSurf < (int)sithWorld_g_pCurrentWorld->numSurfaces)
             sithCog_SurfaceSendMessage(&sithWorld_g_pCurrentWorld->surfaces[actSurf], pThing, SITH_MESSAGE_ACTIVATE);
     }
+    if (irMs != 0 && !bIrDone && now >= irMs)
+    {
+        // The headlight cog (dark.jkl): newColorEffect(0, 1, 0, 0,0,0, 0,0,0, 1.0); EnableIRMode(0.8, 1)
+        bIrDone = 1;
+        int idx = stdPalEffects_NewRequest(1);
+        stdPalEffects_SetFilter(idx, 0, 1, 0);
+        stdPalEffects_SetTint(idx, 0.0f, 0.0f, 0.0f);
+        stdPalEffects_SetAdd(idx, 0, 0, 0);
+        stdPalEffects_SetFade(idx, 1.0f);
+        sithRender_EnableIRMode(0.8f, 1.0f);
+        if (irAdd > 0)
+        {
+            // the cog's second effect: sector ambient * 240 added to every channel
+            int idx2 = stdPalEffects_NewRequest(1);
+            stdPalEffects_SetFilter(idx2, 0, 0, 0);
+            stdPalEffects_SetTint(idx2, 0.0f, 0.0f, 0.0f);
+            stdPalEffects_SetAdd(idx2, irAdd, irAdd, irAdd);
+            stdPalEffects_SetFade(idx2, 1.0f);
+        }
+        stdPlatform_Printf("DEBUGSCRIPT: infrared on (effect %d, add %d)\n", idx, irAdd);
+    }
     if (traceMs != 0 && now >= nextTrace)
     {
         nextTrace = now + traceMs;
@@ -1016,6 +1047,11 @@ void dwGuiInGame::Update()
     }
 
     stdPalEffects_UpdatePalette(stdDisplay_GetPalette());
+    // Added: the hardware scene is drawn through std3D's world shader, which applies the
+    // palette effects (filter/tint/add/fade) itself from rdroid_curColorEffects, as
+    // jkGame_Update does for JK's 3D-accelerated path. Without this only the 8-bit HUD
+    // showed the headlight's green filter and its sector-ambient white-out.
+    rdSetColorEffects(&stdPalEffects_state.effect);
 
     // 'H' holster toggle (sithControl key 0x26): edge-toggle bHolstered — it
     // flips on key-down while unholstered, or key-up while holstered — then set
