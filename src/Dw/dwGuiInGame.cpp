@@ -793,6 +793,7 @@ int dwGuiInGame::Activate()
 void dwGuiInGame::Deactivate()
 {
     dwDisplay_bHwScene = 0; // Added: the GL scene FBO is stale from here on (see dwDisplay.h)
+    dwDisplay_BlendMaskClear();
     if (this->deathFadeHandle >= 0)
     {
         stdPalEffects_FreeRequest(this->deathFadeHandle);
@@ -851,7 +852,7 @@ void dwGuiInGame::Resume()
 // per-frame mission tick. See the FIDELITY NOTE (movement-sound +
 // physics reads touch DW-forked SithThing fields; the gauge/chatter/energy/
 // death/voice logic is preserved).
-// Added: DW_DEBUG_SCRIPT="tp:x,y,z@ms;act:<surface>@ms;trace:<ms>" — headless test
+// Added: DW_DEBUG_SCRIPT="tp:x,y,z[,yaw]@ms;act:<surface>@ms;trace:<ms>;inv:<bin>,<count>" — headless test
 // driver for mission mechanics: teleport the droid at a game time, send ACTIVATE to a
 // surface at a game time, and/or print the droid's position every <ms>. No effect unset.
 static void dwGuiInGame_DebugScript(SithThing* pThing)
@@ -864,6 +865,7 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static int actSurf = -1, bActDone = 0;
     static unsigned actMs = 0;
     static unsigned traceMs = 0, nextTrace = 0;
+    static int invBin[8], invCount[8], numInv = 0, bInvDone = 0;
     if (!bParsed)
     {
         bParsed = 1;
@@ -881,6 +883,8 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
                 bHaveTp = 1;
             else if (sscanf(pTok, "act:%d@%u", &actSurf, &actMs) == 2)
                 ;
+            else if (numInv < 8 && sscanf(pTok, "inv:%d,%d", &invBin[numInv], &invCount[numInv]) == 2)
+                numInv++;
             else
                 sscanf(pTok, "trace:%u", &traceMs);
         }
@@ -908,6 +912,17 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
                 rdVector_Copy3(&pThing->orient.scale, &pThing->position);
             }
             sithPhysics_FindFloor(pThing, 1);
+        }
+    }
+    if (numInv > 0 && !bInvDone)
+    {
+        // inv:<bin>,<count> — grant inventory items (bin made available + stocked)
+        bInvDone = 1;
+        for (int i = 0; i < numInv; i++)
+        {
+            sithInventory_SetInventoryAvailable(pThing, invBin[i], 1);
+            sithInventory_SetInventory(pThing, invBin[i], (flex_t)invCount[i]);
+            stdPlatform_Printf("DEBUGSCRIPT: inv bin %d = %d\n", invBin[i], invCount[i]);
         }
     }
     if (actSurf >= 0 && !bActDone && now >= actMs)
@@ -1681,6 +1696,10 @@ void dwGuiInGame::Draw(dwImageBits* pDestBits, dwRect* pClipRect)
         rdroid_bSoftwareRenderer = 0;
         dwImageDraw_FillRect(pDestBits, &this->insetRect, 0, pClipRect);
         dwDisplay_bHwScene = 1;
+        dwRect holeRect = this->insetRect; // the hole is fresh: blends over it this frame re-mark it
+        if (pClipRect)
+            dwRect_Clip(&holeRect, pClipRect);
+        dwDisplay_BlendMaskClearRect(&holeRect);
     }
 
     rdAdvanceFrame();

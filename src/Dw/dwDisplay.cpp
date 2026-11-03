@@ -47,6 +47,7 @@
 #include "Dw/dwImageVBuf.h"
 
 #include <stdlib.h>
+#include <SDL3/SDL.h> // Added: SDL_Surface pixels/pitch for the blend mask
 
 #include "jk.h"
 #include "stdPlatform.h"
@@ -73,6 +74,12 @@ tVBuffer* dwDisplay_pBackVBuf = NULL;      // binary: the unnamed tVBuffer
 tVBuffer* dwDisplay_pFrontVBuf = NULL;     // binary: the unnamed tVBuffer
 int dwDisplay_bHwRender = 1;               // Added: dw_hwRender cvar link (see dwDisplay.h)
 int dwDisplay_bHwScene = 0;                // Added: GL scene live in std3D's scene FBO
+uint8_t* dwDisplay_pBlendMask = NULL;      // Added: hardware-scene blend mask (dwDisplay.h)
+const uint8_t* dwDisplay_pBlendMaskBase = NULL;
+int dwDisplay_blendMaskW = 0;
+int dwDisplay_blendMaskH = 0;
+int dwDisplay_blendMaskPitch = 0;
+int dwDisplay_blendMaskDirty = 0;
 int dwDisplay_bHwView = 0;                 // Added: inside a GL view render bracket (readback)
 
 // DW's 10-entry display gamma table (binary: DAT_00529fb8; verified
@@ -110,6 +117,7 @@ void dwDisplay_Startup()
     dwDisplay_pFrontVBuf = NULL;
     dwDisplay_bHwScene = 0; // Added (dwDisplay_bHwRender is a cvar link: not reset)
     dwDisplay_bHwView = 0;  // Added
+    dwDisplay_BlendMaskFree(); // Added
 
     dwDisplay_InitDirtyList();
 }
@@ -300,6 +308,7 @@ void dwDisplay_Shutdown()
     // buffer pointers are simply dropped.
     dwDisplay_pBackVBuf = NULL;
     dwDisplay_pFrontVBuf = NULL;
+    dwDisplay_BlendMaskFree(); // Added
     stdDisplay_RestoreDisplayMode();
 }
 
@@ -360,8 +369,57 @@ int dwDisplay_SetMode(int width, int height, int bpp)
         // instead, matching the original's practical behavior (it never ran
         // the NULL branch).
         dwDisplay_pScreenImage = new dwImageVBuf(dwDisplay_pBackVBuf);
+
+        // Added: the blend mask mirrors the back buffer (see dwDisplay.h).
+        dwDisplay_BlendMaskFree();
+        if (dwDisplay_pBackVBuf->sdlSurface != NULL && dwDisplay_pBackVBuf->format.format.bpp == 8)
+        {
+            int w = dwDisplay_pBackVBuf->format.width, h = dwDisplay_pBackVBuf->format.height;
+            dwDisplay_pBlendMask = (uint8_t*)calloc((size_t)w * h, 1);
+            if (dwDisplay_pBlendMask != NULL)
+            {
+                dwDisplay_pBlendMaskBase = (const uint8_t*)dwDisplay_pBackVBuf->sdlSurface->pixels;
+                dwDisplay_blendMaskW = w;
+                dwDisplay_blendMaskH = h;
+                dwDisplay_blendMaskPitch = dwDisplay_pBackVBuf->sdlSurface->pitch;
+                dwDisplay_blendMaskDirty = 1;
+            }
+        }
     }
     return bOk != 0;
+}
+
+// Added: blend mask lifecycle (see dwDisplay.h).
+void dwDisplay_BlendMaskClear(void)
+{
+    if (dwDisplay_pBlendMask == NULL)
+        return;
+    _memset(dwDisplay_pBlendMask, 0, (size_t)dwDisplay_blendMaskW * dwDisplay_blendMaskH);
+    dwDisplay_blendMaskDirty = 1;
+}
+
+void dwDisplay_BlendMaskClearRect(const dwRect* pRect)
+{
+    if (dwDisplay_pBlendMask == NULL)
+        return;
+    int l = pRect->left < 0 ? 0 : pRect->left;
+    int t = pRect->top < 0 ? 0 : pRect->top;
+    int r = pRect->right > dwDisplay_blendMaskW ? dwDisplay_blendMaskW : pRect->right;
+    int b = pRect->bottom > dwDisplay_blendMaskH ? dwDisplay_blendMaskH : pRect->bottom;
+    if (l >= r || t >= b)
+        return;
+    for (int y = t; y < b; y++)
+        _memset(dwDisplay_pBlendMask + (size_t)y * dwDisplay_blendMaskW + l, 0, (size_t)(r - l));
+    dwDisplay_blendMaskDirty = 1;
+}
+
+void dwDisplay_BlendMaskFree(void)
+{
+    free(dwDisplay_pBlendMask);
+    dwDisplay_pBlendMask = NULL;
+    dwDisplay_pBlendMaskBase = NULL;
+    dwDisplay_blendMaskW = dwDisplay_blendMaskH = dwDisplay_blendMaskPitch = 0;
+    dwDisplay_blendMaskDirty = 1;
 }
 
 // links a fresh node carrying *pRect after pAfter.

@@ -17,6 +17,7 @@
 
 #include "Dw/dwImage.h"
 #include "Dw/dwRect.h"
+#include "Dw/dwDisplay.h" // Added: dwDisplay_BlendWrite (hardware-scene blend mask)
 #include "Engine/rdColormap.h"
 #include "globals.h" // rdColormap_pCurMap
 
@@ -214,7 +215,7 @@ void dwImageDraw_BlendRect(dwImageBits* pBits, dwRect* pRect, int color, dwRect*
         uint8_t* p = pRow;
         for (uint16_t n = (uint16_t)width; n != 0; n--)
         {
-            *p = pTbl[(unsigned int)*p * 0x100 + (color & 0xff)];
+            dwDisplay_BlendWrite(p, (uint8_t)color, pTbl[(unsigned int)*p * 0x100 + (color & 0xff)]);
             p++;
         }
         pRow += pBits->stride;
@@ -621,7 +622,7 @@ void dwImageDraw_BlendColumn(dwImageBits* pBits, int16_t x, int16_t yTop, int16_
         for (int n = (int16_t)(yBottom - yTop); n != 0; n--)
         {
             uint8_t* pTbl = (uint8_t*)rdColormap_pCurMap->transparency;
-            *p = pTbl[(unsigned int)*p * 0x100 + (color & 0xff)];
+            dwDisplay_BlendWrite(p, (uint8_t)color, pTbl[(unsigned int)*p * 0x100 + (color & 0xff)]);
             p += pBits->stride;
         }
     }

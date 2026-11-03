@@ -12,6 +12,7 @@
 
 #include "Dw/dwImage.h"
 #include "Dw/dwRect.h"
+#include "Dw/dwDisplay.h" // Added: dwDisplay_BlendWrite (hardware-scene blend mask)
 #include "Engine/rdColormap.h"
 #include "General/stdHashtbl.h"
 #include "General/stdLinkList.h" // tLinkListNode (tHashLink) definition
@@ -246,7 +247,10 @@ void dwFont_DrawGlyph8(dwFont* pFont, dwImageBits* pBits, dwPoint* pPos, char ch
                                     out = ((uint8_t*)rdColormap_pCurMap->transparency)[(unsigned int)*pDst * 0x100 + color];
                             }
                         }
-                        *pDst = out;
+                        if (s == 1 || s == 2)
+                            dwDisplay_BlendWrite(pDst, color, out);
+                        else
+                            *pDst = out;
                     }
                     pDst++;
                 }
@@ -340,7 +344,10 @@ void dwFont_DrawGlyphClipped8(dwFont* pFont, dwImageBits* pBits, dwPoint* pPos, 
                                     out = ((uint8_t*)rdColormap_pCurMap->transparency)[(unsigned int)*pDst * 0x100 + color];
                             }
                         }
-                        *pDst = out;
+                        if (s == 1 || s == 2)
+                            dwDisplay_BlendWrite(pDst, color, out);
+                        else
+                            *pDst = out;
                     }
                     pDst++;
                 }

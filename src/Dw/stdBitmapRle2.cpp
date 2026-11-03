@@ -22,6 +22,7 @@
 #include "Dw/dwImageVBuf.h"
 #include "Dw/dwString.h"
 #include "Dw/dwRect.h"
+#include "Dw/dwDisplay.h" // Added: dwDisplay_BlendWrite (hardware-scene blend mask)
 
 #include "stdPlatform.h"
 
@@ -402,7 +403,7 @@ static void RLE_decompress_type1_colormap(dwImageBits* pDest, uint8_t* pData,
                             {
                                 uint8_t src = *pOp++;
                                 if (src != 0)
-                                    *pDst = pTable[(unsigned int)*pDst * 0x100 + src];
+                                    dwDisplay_BlendWrite(pDst, src, pTable[(unsigned int)*pDst * 0x100 + src]);
                                 pDst++;
                                 n--;
                             } while (n != 0);
@@ -457,7 +458,7 @@ static void RLE_decompress_type1_colormap(dwImageBits* pDest, uint8_t* pData,
                         uint8_t* pDst = (uint8_t*)pDest->pPixels + pDest->stride * (int)row + (int)sVar6;
                         do
                         {
-                            *pDst = pTable[(unsigned int)*pDst * 0x100 + value];
+                            dwDisplay_BlendWrite(pDst, value, pTable[(unsigned int)*pDst * 0x100 + value]);
                             pDst++;
                             n--;
                         } while (n != 0);

@@ -128,6 +128,7 @@ extern float jkSaber_rgbBlue;
 GLint programMenu_attribute_coord3d, programMenu_attribute_v_color, programMenu_attribute_v_uv, programMenu_attribute_v_norm;
 GLint programMenu_uniform_mvp, programMenu_uniform_tex, programMenu_uniform_displayPalette;
 GLint programMenu_uniform_refTex = -1, programMenu_uniform_useRef = -1; // Added: DW view reference mask
+GLint programMenu_uniform_blendTex = -1, programMenu_uniform_useBlend = -1; // Added: DW scene blend mask
 
 std3DSimpleTexStage std3D_uiProgram;
 std3DSimpleTexStage std3D_texFboStage;
@@ -194,6 +195,7 @@ extern int dwDisplay_bHwView;
 static void std3D_DwPresentViewLayer(void); // the workshop view layer (end of file)
 static void std3D_DwFreeViewLayer(void);
 static int std3D_DwBindViewRef(void);
+static int std3D_DwBindBlendMask(void);
 #else
 #define STD3D_DW_SCENE (0)
 #define STD3D_DW_VIEW  (0)
@@ -558,6 +560,8 @@ int init_resources()
     programMenu_uniform_displayPalette = std3D_tryFindUniform(programMenu, "displayPalette");
     programMenu_uniform_refTex = std3D_tryFindUniform(programMenu, "refTex");
     programMenu_uniform_useRef = std3D_tryFindUniform(programMenu, "useRef");
+    programMenu_uniform_blendTex = std3D_tryFindUniform(programMenu, "blendTex");
+    programMenu_uniform_useBlend = std3D_tryFindUniform(programMenu, "useBlend");
     
     // Blank texture
     glGenTextures(1, &blank_tex);
@@ -1524,6 +1528,7 @@ void std3D_DrawMenu()
     glUniform1i(programMenu_uniform_displayPalette, 1);
 #ifdef PLATFORM_DROIDWORKS
     int dwUseRef = std3D_DwBindViewRef(); // Added: DW view reference mask (unit 2)
+    int dwUseBlend = std3D_DwBindBlendMask(); // Added: DW scene blend mask (unit 3)
 #endif
 
     D3DVERTEX* vertexes = GL_tmpVertices;
@@ -1613,6 +1618,7 @@ void std3D_DrawMenu()
     glDrawElements(GL_TRIANGLES, (GLsizei)(GL_tmpTrisAmt * 3), GL_UNSIGNED_SHORT, 0);
 #ifdef PLATFORM_DROIDWORKS
     if (dwUseRef) glUniform1i(programMenu_uniform_useRef, 0); // Added
+    if (dwUseBlend) glUniform1i(programMenu_uniform_useBlend, 0); // Added
 #endif
 
     glDisableVertexAttribArray(programMenu_attribute_v_uv);
@@ -3921,8 +3927,21 @@ static uint8_t* std3D_dwRef = NULL;   // CPU copy, tightly packed, GUI buffer di
 static int std3D_dwRefW = 0, std3D_dwRefH = 0;
 static int std3D_dwRefDirty = 0;
 
+// The mission scene's blend mask (dwDisplay.h): GUI pixels the 8-bit code blended onto
+// the scene hole; the menu shader draws them at half alpha over the GL scene.
+extern uint8_t* dwDisplay_pBlendMask;
+extern int dwDisplay_blendMaskW;
+extern int dwDisplay_blendMaskH;
+extern int dwDisplay_blendMaskDirty;
+static GLuint std3D_dwBlendTex = 0;
+static int std3D_dwBlendTexW = 0, std3D_dwBlendTexH = 0;
+
 static void std3D_DwFreeViewLayer()
 {
+    if (std3D_dwBlendTex) glDeleteTextures(1, &std3D_dwBlendTex);
+    std3D_dwBlendTex = 0;
+    std3D_dwBlendTexW = std3D_dwBlendTexH = 0;
+    dwDisplay_blendMaskDirty = 1;
     if (std3D_dwViewLayer.fbo)
         std3D_deleteIntermediateFbo(&std3D_dwViewLayer);
     memset(&std3D_dwViewLayer, 0, sizeof(std3D_dwViewLayer));
@@ -3962,6 +3981,44 @@ void std3D_DwClearViewRef()
 {
     if (std3D_dwRef) memset(std3D_dwRef, 0, (size_t)std3D_dwRefW * std3D_dwRefH);
     std3D_dwRefDirty = 1;
+}
+
+// std3D_DrawMenu: bind the scene blend mask on unit 3 and enable it for the GUI quad.
+static int std3D_DwBindBlendMask()
+{
+    if (Main_bHeadless || !STD3D_DW_SCENE || !dwDisplay_pBlendMask) return 0;
+    if (programMenu_uniform_blendTex < 0 || programMenu_uniform_useBlend < 0) return 0;
+    int w = dwDisplay_blendMaskW, h = dwDisplay_blendMaskH;
+    if (w <= 0 || h <= 0 || w != Video_menuBuffer.format.width || h != Video_menuBuffer.format.height) return 0;
+    glActiveTexture(GL_TEXTURE0 + 3);
+    if (!std3D_dwBlendTex || std3D_dwBlendTexW != w || std3D_dwBlendTexH != h)
+    {
+        if (std3D_dwBlendTex) glDeleteTextures(1, &std3D_dwBlendTex);
+        glGenTextures(1, &std3D_dwBlendTex);
+        glBindTexture(GL_TEXTURE_2D, std3D_dwBlendTex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+        std3D_dwBlendTexW = w; std3D_dwBlendTexH = h;
+        dwDisplay_blendMaskDirty = 1;
+    }
+    glBindTexture(GL_TEXTURE_2D, std3D_dwBlendTex);
+    if (dwDisplay_blendMaskDirty)
+    {
+        GLint savedAlign = 4;
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &savedAlign);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RED, GL_UNSIGNED_BYTE, dwDisplay_pBlendMask);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, savedAlign);
+        dwDisplay_blendMaskDirty = 0;
+    }
+    glActiveTexture(GL_TEXTURE0 + 0);
+    glUniform1i(programMenu_uniform_blendTex, 3);
+    glUniform1i(programMenu_uniform_useBlend, 1);
+    glEnable(GL_BLEND); // half-alpha pixels need the SRC_ALPHA blend DrawMenu set up
+    return 1;
 }
 
 // std3D_DrawMenu: bind the reference mask on unit 2 and enable it for the GUI quad.

@@ -26,6 +26,9 @@
 #include "Dw/dwTypes.h"
 #include "Dw/dwRect.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -90,6 +93,58 @@ extern int dwDisplay_bHwScene;
 //     std3D's persistent view layer, presented under the 8-bit GUI wherever the GUI
 //     still holds the view's own quantized pixels (see dwGui3DView.cpp).
 extern int dwDisplay_bHwView;
+
+// Added: hardware-scene blend mask. With dw_hwRender the mission view's viewport is a
+// hole (palette index 0) in the 8-bit GUI and the GL scene shows through it. GUI code
+// that blends through the colormap's transparency table (the item bar's dimmed icons and
+// translucent triangle, anti-aliased font edges) would otherwise blend with index 0 and
+// come out as opaque garbage (purple icons). While a GL scene is live, a blend onto a
+// hole pixel writes the SOURCE index and records it here; the present (menu_f.glsl,
+// blendTex/useBlend) draws a GUI pixel that still equals its mask entry at half alpha
+// over the scene — the software path's 50/50 table blend, done in GL. A later opaque
+// write of a different index cancels the entry by itself; dwGuiInGame::Draw clears the
+// mask each frame when it cuts the hole. Tightly packed w*h, mirroring the back buffer.
+extern uint8_t* dwDisplay_pBlendMask;
+extern const uint8_t* dwDisplay_pBlendMaskBase; // the back buffer's pixel base
+extern int dwDisplay_blendMaskW;
+extern int dwDisplay_blendMaskH;
+extern int dwDisplay_blendMaskPitch;
+extern int dwDisplay_blendMaskDirty;
+void dwDisplay_BlendMaskClear(void);
+void dwDisplay_BlendMaskClearRect(const dwRect* pRect);
+void dwDisplay_BlendMaskFree(void);
+
+// Store a colormap-blend result: `blended` (= table[*pDst*256+src] or the reverse order)
+// normally; the raw `src` plus a mask entry when the pixel is a scene hole.
+static inline void dwDisplay_BlendWrite(uint8_t* pDst, uint8_t src, uint8_t blended)
+{
+    if (dwDisplay_bHwScene && dwDisplay_pBlendMask)
+    {
+        ptrdiff_t off = pDst - dwDisplay_pBlendMaskBase;
+        if (off >= 0 && off < (ptrdiff_t)dwDisplay_blendMaskPitch * dwDisplay_blendMaskH)
+        {
+            int y = (int)(off / dwDisplay_blendMaskPitch);
+            int x = (int)(off - (ptrdiff_t)y * dwDisplay_blendMaskPitch);
+            if (x < dwDisplay_blendMaskW)
+            {
+                uint8_t* pMask = dwDisplay_pBlendMask + (size_t)y * dwDisplay_blendMaskW + x;
+                if (*pDst == 0)
+                {
+                    *pDst = src;
+                    *pMask = src;
+                    dwDisplay_blendMaskDirty = 1;
+                    return;
+                }
+                if (*pMask != 0)
+                {
+                    *pMask = 0;
+                    dwDisplay_blendMaskDirty = 1;
+                }
+            }
+        }
+    }
+    *pDst = blended;
+}
 
 // Note: no binary counterpart — resets the module globals for OpenJKDF2's
 // soft-reset loop and (re)creates the dirty list, which the binary built in a

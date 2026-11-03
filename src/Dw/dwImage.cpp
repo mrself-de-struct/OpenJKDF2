@@ -22,6 +22,7 @@
 
 #include "Dw/dwImage.h"
 #include "Dw/stdBitmapRle2.h" // stdBitmapRle2_LoadFile8 / stdBitmapRle2_LoadFile16 (P8)
+#include "Dw/dwDisplay.h"     // Added: dwDisplay_BlendWrite (hardware-scene blend mask)
 
 #include "stdPlatform.h"
 
@@ -91,7 +92,7 @@ static void dwImage_CopyRow8ColorMap(uint8_t* pDestRow, uint8_t* pSrcRow, unsign
     for (unsigned int n = count; n != 0; n--)
     {
         unsigned int srcPixel = *pSrcRow++;
-        *pDestRow = pTable[(unsigned int)*pDestRow * 0x100 + srcPixel];
+        dwDisplay_BlendWrite(pDestRow, (uint8_t)srcPixel, pTable[(unsigned int)*pDestRow * 0x100 + srcPixel]);
         pDestRow++;
     }
 }

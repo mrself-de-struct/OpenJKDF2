@@ -3,6 +3,8 @@ uniform sampler2D worldPalette;
 uniform sampler2D displayPalette;
 uniform sampler2D refTex;
 uniform int useRef;
+uniform sampler2D blendTex;
+uniform int useBlend;
 in vec4 f_color;
 in vec2 f_uv;
 out vec4 fragColor;
@@ -28,6 +30,15 @@ void main(void)
         float ref = texture(refTex, f_uv).r;
         if (ref != 0.0 && ref == index)
             discard;
+    }
+    // DroidWorks hardware mission scene: a GUI pixel still equal to its blend-mask entry
+    // was colormap-blended onto the scene hole by the 8-bit code (dimmed inventory icons,
+    // translucent panels, font edges): draw it at half alpha over the GL scene beneath.
+    if (useBlend != 0)
+    {
+        float m = texture(blendTex, f_uv).r;
+        if (m != 0.0 && m == index)
+            transparency = 0.5;
     }
     sampled_color = vec4(palvald.r, palvald.g, palvald.b, transparency);
 
