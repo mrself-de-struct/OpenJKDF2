@@ -241,7 +241,11 @@ int dwGuiLoadSave::OnMessage(dwWidgetMsg* pMsg)
     switch (pMsg->code)
     {
     case 0xfa3: // file selected
-        this->bEditNameMode = (pMsg->param == 0);
+        // Binary (0x40c1ee): tests the message's +0x04 field, i.e. pSender — the
+        // scroll box sends the selected file name there (-> load mode) and the
+        // name-entry refresh sends NULL (-> edit-name mode). param is always 0,
+        // so testing it left the panel stuck in Save mode with a file selected.
+        this->bEditNameMode = (pMsg->pSender == NULL);
         this->RefreshWidgets();
         if (this->slideDir == 0.0f)
         {

@@ -1921,7 +1921,8 @@ dwWidget* dwGuiInGame::CreateControl(char* pKeyword, dwConfFile* pConf)
         // Note: alloc sizeof(dwGuiList), not the binary's 32-bit 0x5c — on 64-bit the C++ object is
         // larger (8-byte pointers/vptr), so the hardcoded size undersized the buffer and the
         // placement-new'd fields (pItems) overflowed it -> crash on Draw.
-        this->pPlayerSpeech = dwGuiList_Ctor((dwGuiList*)(*dwMain_pHS->alloc)(sizeof(dwGuiList)), &r, (float)a, pFontName, (uint8_t)b, (uint8_t)c, &pt);
+        // new (not hs->alloc): the controls group deletes its children with operator delete.
+        this->pPlayerSpeech = new dwGuiList(&r, (float)a, pFontName, (uint8_t)b, (uint8_t)c, &pt);
         return (dwWidget*)this->pPlayerSpeech;
     }
     if (dwString_Equals(pKeyword, "NPCSPEECH"))
@@ -1932,7 +1933,7 @@ dwWidget* dwGuiInGame::CreateControl(char* pKeyword, dwConfFile* pConf)
         uint32_t color = 0; dwPoint pt = { 0, 0 };
         dwConfFile_ParseULong(pConf, &color);
         dwConfFile_ParsePoint(pConf, &pt);
-        this->pNpcSpeech = dwGuiSpeech_Ctor((dwGuiSpeech*)(*dwMain_pHS->alloc)(sizeof(dwGuiSpeech)), &r, 0, pFontName, color, &pt);
+        this->pNpcSpeech = new dwGuiSpeech(&r, 0, pFontName, color, &pt); // new: see PLAYERSPEECH
         return (dwWidget*)this->pNpcSpeech;
     }
     if (dwString_Equals(pKeyword, "CAMMY_TEXT"))

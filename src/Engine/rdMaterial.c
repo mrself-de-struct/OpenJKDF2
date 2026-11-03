@@ -690,7 +690,12 @@ void rdMaterial_FreeEntry(rdMaterial* pMaterial)
                     rdDDrawSurface* surface = &pTex->alphaMats[j];
 
 #if defined(SDL2_RENDER) || defined(TARGET_RETRO_HOMEBREW)
-                    if (surface->texture_loaded) {
+                    // Added: an opaque (no_alpha) upload registers opaqueMats[j] in the
+                    // std3D cache while alphaMats[j] stays unloaded; purge on either, or
+                    // the cache keeps a pointer into this freed texture and the next
+                    // std3D_PurgeEntireTextureCache frees through it (DroidWorks: rebuild
+                    // the droid in the workshop, then start a mission -> abort).
+                    if (surface->texture_loaded || pTex->opaqueMats[j].texture_loaded) {
                         stdPlatform_Printf("OpenJKDF2: rdMaterial_FreeEntry %s %x\n", pMaterial->mat_fpath, surface->texture_id);
                         std3D_PurgeSurfaceRefs(&pTex->alphaMats[j]);
                         std3D_PurgeSurfaceRefs(&pTex->opaqueMats[j]);
@@ -732,7 +737,7 @@ void rdMaterial_FreeEntry(rdMaterial* pMaterial)
             rdDDrawSurface* surface = &pTex->alphaMats[j];
 
 #if defined(SDL2_RENDER) || defined(TARGET_RETRO_HOMEBREW)
-            if (surface->texture_loaded) {
+            if (surface->texture_loaded || pTex->opaqueMats[j].texture_loaded) { // Added: see above
                 stdPlatform_Printf("OpenJKDF2: rdMaterial_FreeEntry %s %x\n", pMaterial->mat_fpath, surface->texture_id);
                 std3D_PurgeSurfaceRefs(&pTex->alphaMats[j]);
                 std3D_PurgeSurfaceRefs(&pTex->opaqueMats[j]);
