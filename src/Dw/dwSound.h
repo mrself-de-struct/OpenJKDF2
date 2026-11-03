@@ -98,7 +98,7 @@ struct dwSoundSampleStream : dwSoundSample
     int loopDataLen;           // 0x3c: WAV data chunk length
     int bytesRemaining;        // 0x40: unread bytes until the loop wrap
 
-    // Note: adaptation fields (OpenAL queue streaming; see dwSound.cpp):
+    // Added: adaptation fields (OpenAL queue streaming; see dwSound.cpp):
     stdSound_buffer_t* apChunks[DWSOUND_STREAM_CHUNKS]; // ring slices as own buffers
     int chunkFlip;                  // next chunk index to fill
 

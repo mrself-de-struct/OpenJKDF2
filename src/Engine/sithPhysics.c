@@ -43,7 +43,7 @@ void sithPhysics_FindFloor(SithThing *pThing, int bNoThingStateUpdate)
     if (!pThing->sector)
         return;
 
-    // DroidWorks (DroidWorks.exe 0x4592fc): a droid in a water sector searches for a floor
+    // Added: DroidWorks (DroidWorks.exe 0x4592fc): a droid in a water sector searches for a floor
     // like anywhere else (it walks the bottom); there is no water-surface search, and
     // other things find no floor under water.
     int bDwWalksBottom = Main_bDroidWorks && pThing->type == SITH_THING_PLAYER;
@@ -181,7 +181,7 @@ void sithPhysics_UpdateThing(SithThing *pThing, flex_t secDeltaTime)
     {
         sithPhysics_UpdateAttachedThingPhysics(pThing, secDeltaTime);
     }
-    // DroidWorks (DroidWorks.exe 0x45959f): an unattached player droid takes the player
+    // Added: DroidWorks (DroidWorks.exe 0x45959f): an unattached player droid takes the player
     // path before the sector's underwater flag is looked at; droids walk the bottom, and
     // the player path applies the water drag and half gravity itself. The original's
     // player path is the 50 Hz rollover integrator of the same equations the general
@@ -272,7 +272,7 @@ void sithPhysics_SetThingLook(SithThing *pThing, const rdVector3 *pNormal, flex_
     {
         // TODO: rdMatrix? Or are they just manually doing basis vectors?
         v20 = secDeltaTime * 10.0;
-        // Fixed: the decompilation had the y and z components of pNormal swapped here.
+        // Altered: the decompilation had the y and z components of pNormal swapped here.
         // Both JK.EXE (0x4f5e83) and DroidWorks.exe (0x459833) add pNormal->y to uvec.y
         // and pNormal->z to uvec.z.
         pThing->orient.uvec.x = pNormal->x * v20 + pThing->orient.uvec.x;
@@ -524,7 +524,7 @@ void sithPhysics_UpdateThingPhysics(SithThing *pThing, flex_t secDeltaTime)
             rdMatrix_Normalize34(&pThing->orient);
     }
 
-    // DroidWorks (DroidWorks.exe 0x45a82b): a falling droid in a water sector drags 1.2x.
+    // Added: DroidWorks (DroidWorks.exe 0x45a82b): a falling droid in a water sector drags 1.2x.
     int bDwPlayerInWater = Main_bDroidWorks
                         && pThing->type == SITH_THING_PLAYER
                         && (pThing->sector->flags & SITH_SECTOR_UNDERWATER) != 0;
@@ -540,7 +540,7 @@ void sithPhysics_UpdateThingPhysics(SithThing *pThing, flex_t secDeltaTime)
     {
         if (!(pThing->physicsParams.flags & SITH_PF_FLY))
         {
-            // DroidWorks: the original ran this once per frame on a thrust the controls
+            // Added: DroidWorks — the original ran this once per frame on a thrust the controls
             // reset every frame, so in-air thrust was a flat 0.3 of the input at any
             // framerate. The fixed-step loop would compound the 0.3 once per step
             // (0.3^steps per frame), so for the local player scale once per rendered frame.
@@ -573,7 +573,7 @@ void sithPhysics_UpdateThingPhysics(SithThing *pThing, flex_t secDeltaTime)
         && !(pThing->sector->flags & SITH_SECTOR_NOGRAVITY))
     {
         flex_t gravity = sithWorld_g_pCurrentWorld->gravity * secDeltaTime;
-        // DroidWorks (DroidWorks.exe 0x45a935): half gravity on a droid falling through water.
+        // Altered: DroidWorks (DroidWorks.exe 0x45a935): half gravity on a droid falling through water.
         if ( (pThing->physicsParams.flags & SITH_PF_PARTIALGRAVITY) != 0 || bDwPlayerInWater )
             gravity *= 0.5;
         a1a.z = a1a.z - gravity;
@@ -984,7 +984,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
                 a2a = pThing->physicsParams.surfDrag * possibly_undef_2;
                 v144 = 0.0;
             }
-            // DroidWorks (DroidWorks.exe 0x45b657): a droid walking the bottom of a water
+            // Added: DroidWorks (DroidWorks.exe 0x45b657): a droid walking the bottom of a water
             // sector drags 1.2x (the static-drag threshold is left unscaled, as there).
             if ( Main_bDroidWorks
               && pThing->type == SITH_THING_PLAYER
@@ -1004,7 +1004,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
       && !rdVector_IsZero3(&pThing->physicsParams.acceleration) )
     {
         flex_t v44 = possibly_undef_2 * secDeltaTime;
-        // DroidWorks (DroidWorks.exe 0x45b732) has neither the crouch factor nor the
+        // Altered: DroidWorks (DroidWorks.exe 0x45b732) has neither the crouch factor nor the
         // maxVelocity clamp on the thrust step.
         if ( (pThing->physicsParams.flags & SITH_PF_CROUCHING) != 0 && !Main_bDroidWorks )
             v44 = secDeltaTime * 0.8;
@@ -1023,7 +1023,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
 
     if (pThing->physicsParams.mass != 0.0 && (pThing->sector->flags & SITH_SECTOR_USETHRUST) && !(pThing->physicsParams.flags & SITH_PF_NOTHRUST))
     {
-        // DroidWorks (DroidWorks.exe 0x45b88b) compares the sector thrust against
+        // Altered: DroidWorks (DroidWorks.exe 0x45b88b) compares the sector thrust against
         // gravity alone, not gravity * mass: its magnets push a sector up with
         // thrust 8 under gravity 4, and the baked droid weighs hundreds of units,
         // so the JK test would never lift a droid off the floor.
@@ -1074,7 +1074,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
                     rdVector_Scale3Acc(&pThing->physicsParams.acceleration, 0.3);
                 }
                 rdVector_Scale3(&out, &pThing->physicsParams.acceleration, secDeltaTime);
-                // Fixed: the thrust is in thing space; both JK.EXE (0x4f82cb) and
+                // Altered: the thrust is in thing space; both JK.EXE (0x4f82cb) and
                 // DroidWorks.exe (0x45bca0) rotate it by the orientation here, as the
                 // non-attached path does. The decompilation had dropped this.
                 rdMatrix_TransformVector34Acc(&out, &pThing->orient);
@@ -1121,7 +1121,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
     // Is the player climbing up/down a slope?
     if ( Main_bDroidWorks )
     {
-        // DroidWorks (DroidWorks.exe 0x45bf3b): the slope pull depends on the droid's
+        // Added: DroidWorks (DroidWorks.exe 0x45bf3b): the slope pull depends on the droid's
         // locomotion. Treads (dwCog_droidCaps 0x80000) feel no pull on anything gentler
         // than 75 degrees; legs get the usual fraction up to 30 degrees and FULL gravity
         // beyond it, so a legged droid slides back down a steep incline. Only applied on
@@ -1161,7 +1161,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
         {
             // If deltaSeconds is < the canonical phys tickrate, we get these
             // crazy oscillations
-            // DroidWorks (DroidWorks.exe 0x45c05b) removes the whole normal component every
+            // Altered: DroidWorks (DroidWorks.exe 0x45c05b) removes the whole normal component every
             // step; the result is the velocity's tangential part whatever the step size, so
             // the canonical-tick scaling below is not applied to it.
 #ifdef FIXED_TIMESTEP_PHYS
@@ -1201,7 +1201,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
     }
 
     flex_t v131;
-    // DroidWorks (DroidWorks.exe 0x45c206) has no crouch variant of the floor distance.
+    // Altered: DroidWorks (DroidWorks.exe 0x45c206) has no crouch variant of the floor distance.
     if ( (pThing->physicsParams.flags & SITH_PF_CROUCHING) && !Main_bDroidWorks )
     {
         v131 = v158 * possibly_undef_1 - (pThing->moveSize - -0.01);
@@ -1241,7 +1241,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
 
         // If deltaSeconds is < the canonical phys tickrate, we get these
         // crazy oscillations
-        // DroidWorks (DroidWorks.exe 0x45c24a) closes the whole gap every frame (limited to
+        // Note: DroidWorks (DroidWorks.exe 0x45c24a) closes the whole gap every frame (limited to
         // 0.5 units/s). That only lets a droid onto a ramp because a 15 fps frame carries it
         // across the ~r/4 zone where its sphere already presses on the ramp while it is still
         // attached to the flat floor; at small steps (the original above ~30 fps included) the
@@ -1268,7 +1268,7 @@ void sithPhysics_UpdateAttachedThingPhysics(SithThing *pThing, flex_t secDeltaTi
             v131 = orig_v131;
         }
 
-        // DroidWorks (DroidWorks.exe 0x45c289) always corrects along the attached
+        // Altered: DroidWorks (DroidWorks.exe 0x45c289) always corrects along the attached
         // surface's normal; the vertical variant for SITH_PF_800 things is JK-only.
         if ( (pThing->physicsParams.flags & SITH_PF_800) != 0 && !Main_bDroidWorks )
         {

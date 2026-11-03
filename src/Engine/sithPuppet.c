@@ -73,7 +73,7 @@ static const char* sithPuppet_animNames[43+2] = {
 };
 
 // Added: DroidWorks' puppet submode table (DroidWorks.exe 0x52a1a0, 24 entries). Every
-// DroidWorks puppet class, the droid builder's merged keyframes (dwDroidStats) and the
+// Added: DroidWorks puppet class, the droid builder's merged keyframes (dwDroidStats) and the
 // mission cogs' PlayMode numbers use this numbering, not JK's.
 #define SITHPUPPET_DW_NUMANIMS 24
 static const char* sithPuppet_aDwAnimNames[SITHPUPPET_DW_NUMANIMS] = {
@@ -85,7 +85,7 @@ static const char* sithPuppet_aDwAnimNames[SITHPUPPET_DW_NUMANIMS] = {
 };
 
 // Added: the DroidWorks slot for a JK SITH_ANIM_* id used by engine code, or -1 when
-// DroidWorks has no such animation (hit, land, block, ...).
+// Added: DroidWorks has no such animation (hit, land, block, ...).
 int sithPuppet_DwAnim(int jkAnim)
 {
     if ( !Main_bDroidWorks )
@@ -514,7 +514,7 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     // MOTS also routes actors with the SITH_AF_ELECTRICWHIP typeflag through the submerged
     // animation set (majorMode = field_0 + 3) even when not underwater. Without this, such MOTS
     // actors play the wrong animation set. Gated on MoTS so JK behavior is unchanged.
-    // DroidWorks (DroidWorks.exe 0x45547b): a player droid never takes the underwater
+    // Altered: DroidWorks (DroidWorks.exe 0x45547b): a player droid never takes the underwater
     // animation set (it walks the bottom), and its walk/run threshold is 0.6 x maxVelocity.
     if ( (pThing->sector && (pThing->sector->flags & SITH_SECTOR_UNDERWATER) != 0
           && !(Main_bDroidWorks && pThing->type == SITH_THING_PLAYER))
@@ -643,7 +643,7 @@ LABEL_51:
     int bFall = (anim == SITH_ANIM_FALL);
     if ( Main_bDroidWorks )
     {
-        // DroidWorks slot numbering; a missing run animation falls back to walk
+        // Added: DroidWorks slot numbering; a missing run animation falls back to walk
         // (DroidWorks.exe 0x45564e).
         anim = sithPuppet_DwAnim(anim);
         if ( anim < 0 )
@@ -933,7 +933,7 @@ void sithPuppet_PlayFidgetMode(SithThing *pThing)
     SITH_ASSERTREL(pThing); // Added: ported from OpenJones3D sithPuppet_PlayFidgetMode
     SITH_ASSERTREL(pThing->puppet); // Added: ported from OpenJones3D sithPuppet_PlayFidgetMode
     puppet = pThing->puppet;
-    // DroidWorks (DroidWorks.exe 0x4551b0): the player droid fidgets after 2 s, others after 30 s.
+    // Altered: DroidWorks (DroidWorks.exe 0x4551b0): the player droid fidgets after 2 s, others after 30 s.
     flex_d_t fidgetDelayMs = (Main_bDroidWorks && pThing == sithPlayer_g_pLocalPlayerThing) ? 2000.0 : 30000.0;
     int fidgetAnim = sithPuppet_DwAnim(SITH_ANIM_FIDGET);
     int fidget2Anim = sithPuppet_DwAnim(SITH_ANIM_FIDGET2);

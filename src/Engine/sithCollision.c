@@ -743,7 +743,7 @@ LABEL_78:
                     break;
                 }
 
-                // DroidWorks (DroidWorks.exe 0x466598): while attached, an edge hit against a
+                // Added: DroidWorks (DroidWorks.exe 0x466598): while attached, an edge hit against a
                 // world surface that lies within 45 degrees of the attached face is skipped.
                 // A droid's collision sphere rests on the floor (moveSize == height), so
                 // without this every floor seam, lip and ramp edge would deflect it.

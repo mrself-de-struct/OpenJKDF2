@@ -433,7 +433,7 @@ void dwSoundSampleStream::Update()
     // source's own queue depth plays that role: top up until
     // DWSOUND_STREAM_QUEUE_TARGET slices are queued and unplayed.
     //
-    // Note: an earlier adaptation paced the refill off the manager's SDL
+    // Altered: an earlier adaptation paced the refill off the manager's SDL
     // wall clock instead. The audio device clock drifts against it, so after
     // some minutes the estimate was off by whole slices: either a slice still
     // attached to the source was re-uploaded (a silent OpenAL no-op, so the
@@ -444,13 +444,13 @@ void dwSoundSampleStream::Update()
     {
         // No queue information (headless / backend without streaming): fall
         // back to the plain "stopped -> finished" test.
-        if (stdSound_IsPlaying(this->pBuffer, NULL) == 0)
+        if (!stdSound_IsPlaying(this->pBuffer, NULL))
             this->bPlaying = 0;
     }
     else
     {
         int guard = DWSOUND_STREAM_QUEUE_TARGET; // bounded: never more slices than we own
-        if (pending == 0 && dwGuiInGame_VoiceDebug())
+        if (!pending && dwGuiInGame_VoiceDebug())
             stdPlatform_Printf("DWSOUND: stream %s underrun t=%.3f\n", this->name.pBuffer ? this->name.pBuffer : "?",
                                dwSound_pManagerCached ? dwSound_pManagerCached->clockSec : 0.0f);
         while (guard-- > 0 && pending < DWSOUND_STREAM_QUEUE_TARGET)
