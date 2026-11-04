@@ -17,6 +17,7 @@
 #include "Dss/sithMulti.h"
 #include "Dss/sithDSSThing.h"
 #include "jk.h"
+#include "Main/Main.h" // Added: Main_bDroidWorks (DroidWorks death log)
 
 void sithActor_SetDifficulty(SithThing *pActor)
 {
@@ -268,6 +269,23 @@ void sithActor_KillActor(SithThing *pThing, SithThing *pSrcThing, int damageType
 
     if (pThing->flags & SITH_TF_DEAD) return;
 
+    // Added: DroidWorks diagnostic. Mission props such as the Incline crates are actors with
+    // 40 health; a dead one draws black, stops colliding and no longer counts for goals, so
+    // every death is logged with what caused it.
+    if (Main_bDroidWorks)
+    {
+#ifdef SITH_DEBUG_STRUCT_NAMES
+        const char* pName = pThing->pTemplate ? pThing->pTemplate->aName : "?";
+        const char* pSrcName = (pSrcThing && pSrcThing->pTemplate) ? pSrcThing->pTemplate->aName : "?";
+#else
+        const char* pName = "?";
+        const char* pSrcName = "?";
+#endif
+        stdPlatform_Printf("DW: thing %d (%s) killed by thing %d (%s), damage type 0x%x, at %.3f %.3f %.3f\n",
+                           (int)(pThing - sithWorld_g_pCurrentWorld->aThings), pName,
+                           pSrcThing ? (int)(pSrcThing - sithWorld_g_pCurrentWorld->aThings) : -1, pSrcName,
+                           damageType, pThing->position.x, pThing->position.y, pThing->position.z);
+    }
 
     pThing->actorParams.health = 0.0;
     if ( (pThing->flags & SITH_TF_CAPTURED) == 0 || (sithCog_ThingSendMessage(pThing, pSrcThing, SITH_MESSAGE_KILLED), (pThing->flags & SITH_TF_DESTROYED) == 0) )

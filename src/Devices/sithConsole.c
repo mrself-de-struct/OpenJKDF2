@@ -1,4 +1,5 @@
 #include "sithConsole.h"
+#include <stdlib.h> // Added: getenv (OPENJKDF2_CONSOLE_STDOUT)
 
 #include "Main/sithCommand.h"
 #include "Win95/stdSound.h"
@@ -96,6 +97,13 @@ void sithConsole_Close()
 void sithConsole_PrintString(const char *pString)
 {
     SITH_ASSERTREL(pString); // Added: ported from OpenJones3D sithConsole_PrintString
+
+    // Added: OPENJKDF2_CONSOLE_STDOUT=1 echoes console text (cog print verbs) to stdout for headless tests
+    static int sithConsole_bEchoStdout = -1;
+    if (sithConsole_bEchoStdout < 0)
+        sithConsole_bEchoStdout = (getenv("OPENJKDF2_CONSOLE_STDOUT") != NULL);
+    if (sithConsole_bEchoStdout)
+        stdPlatform_Printf("CONSOLE: %s\n", pString);
 
     if ( DebugGui_fnPrint )
     {

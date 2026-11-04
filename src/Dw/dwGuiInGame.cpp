@@ -874,8 +874,10 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static unsigned traceMs = 0, nextTrace = 0;
     static int invBin[8], invCount[8], numInv = 0, bInvDone = 0;
     static int keyCode[4]; static unsigned keyFrom[4], keyTo[4]; static int numKeys = 0;
-    static int mvThing = -1, bMvDone = 0; static float mvPos[3]; static unsigned mvMs = 0;
+    static int mvThing[4] = { -1, -1, -1, -1 }, bMvDone[4] = { 0, 0, 0, 0 }, numMv = 0; static float mvPos[4][3]; static unsigned mvMs[4];
     static unsigned irMs = 0; static int bIrDone = 0, irAdd = 0; // ir:<ms>[,<add>] = what the headlight cog does
+    static int ttThing = -1; // tt:<thing> = also trace that world thing (position, sector, attach, collide)
+    static int dmgThing = -1, bDmgDone = 0; static float dmgAmount = 0.0f; static unsigned dmgMs = 0; // dmg:<thing>,<amount>@ms
     extern uint8_t stdControl_aDebugKeyForce[];
     if (!bParsed)
     {
@@ -898,9 +900,13 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
                 numInv++;
             else if (numKeys < 4 && sscanf(pTok, "key:%i@%u-%u", &keyCode[numKeys], &keyFrom[numKeys], &keyTo[numKeys]) == 3)
                 numKeys++;
-            else if (sscanf(pTok, "mv:%d,%f,%f,%f@%u", &mvThing, &mvPos[0], &mvPos[1], &mvPos[2], &mvMs) == 5)
-                ;
+            else if (numMv < 4 && sscanf(pTok, "mv:%d,%f,%f,%f@%u", &mvThing[numMv], &mvPos[numMv][0], &mvPos[numMv][1], &mvPos[numMv][2], &mvMs[numMv]) == 5)
+                numMv++;
             else if (sscanf(pTok, "ir:%u,%d", &irMs, &irAdd) == 2 || sscanf(pTok, "ir:%u", &irMs) == 1)
+                ;
+            else if (sscanf(pTok, "tt:%d", &ttThing) == 1)
+                ;
+            else if (sscanf(pTok, "dmg:%d,%f@%u", &dmgThing, &dmgAmount, &dmgMs) == 3)
                 ;
             else
                 sscanf(pTok, "trace:%u", &traceMs);
@@ -931,16 +937,18 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             sithPhysics_FindFloor(pThing, 1);
         }
     }
-    if (mvThing >= 0 && !bMvDone && now >= mvMs)
+    for (int i = 0; i < numMv; i++)
     {
-        // mv:<thing>,x,y,z@ms — relocate a world thing (e.g. a movable incline) for a test
-        bMvDone = 1;
-        if (mvThing < (int)sithWorld_g_pCurrentWorld->numThings)
+        // mv:<thing>,x,y,z@ms — relocate a world thing (e.g. a movable incline) for a test (up to 4)
+        if (mvThing[i] < 0 || bMvDone[i] || now < mvMs[i])
+            continue;
+        bMvDone[i] = 1;
+        if (mvThing[i] < (int)sithWorld_g_pCurrentWorld->numThings)
         {
-            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[mvThing];
-            rdVector3 pos = { mvPos[0], mvPos[1], mvPos[2] };
+            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[mvThing[i]];
+            rdVector3 pos = { mvPos[i][0], mvPos[i][1], mvPos[i][2] };
             SithSector* pSec = sithSector_FindSectorAtPos(sithWorld_g_pCurrentWorld, &pos);
-            stdPlatform_Printf("DEBUGSCRIPT: mv thing %d -> %f %f %f sector %d\n", mvThing, pos.x, pos.y, pos.z,
+            stdPlatform_Printf("DEBUGSCRIPT: mv thing %d -> %f %f %f sector %d\n", mvThing[i], pos.x, pos.y, pos.z,
                                pSec ? (int)(pSec - sithWorld_g_pCurrentWorld->aSectors) : -1);
             if (pSec != NULL)
             {
@@ -948,6 +956,14 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
                 sithThing_SetSector(pT, pSec, 0);
             }
         }
+    }
+    if (dmgThing >= 0 && !bDmgDone && now >= dmgMs && dmgThing < (int)sithWorld_g_pCurrentWorld->numThings)
+    {
+        // dmg:<thing>,<amount>@ms — damage a world thing (tests what a killed thing looks like)
+        bDmgDone = 1;
+        SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[dmgThing];
+        stdPlatform_Printf("DEBUGSCRIPT: damage thing %d by %f (health %f)\n", dmgThing, dmgAmount, pT->actorParams.health);
+        sithThing_DamageThing(pT, pThing, dmgAmount, SITH_DAMAGE_IMPACT);
     }
     for (int i = 0; i < numKeys; i++)
     {
@@ -998,6 +1014,19 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     if (traceMs != 0 && now >= nextTrace)
     {
         nextTrace = now + traceMs;
+        if (ttThing >= 0 && ttThing < (int)sithWorld_g_pCurrentWorld->numThings)
+        {
+            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[ttThing];
+            stdPlatform_Printf("DEBUGSCRIPT: thing %d t=%u type %d collide %d pos %.4f %.4f %.4f vel %.3f %.3f %.3f sector %d attach 0x%x light %.3f flags 0x%x\n",
+                               ttThing, now, pT->type, pT->collide, pT->position.x, pT->position.y, pT->position.z,
+                               pT->physicsParams.vel.x, pT->physicsParams.vel.y, pT->physicsParams.vel.z,
+                               pT->sector ? (int)(pT->sector - sithWorld_g_pCurrentWorld->aSectors) : -1,
+                               pT->attach_flags, pT->light, pT->flags);
+            stdPlatform_Printf("DEBUGSCRIPT: thing %d health %.2f/%.2f attachedSurface %d attachedThing %d\n", ttThing,
+                               pT->actorParams.health, pT->actorParams.maxHealth,
+                               (pT->attach_flags & SITH_ATTACH_SURFACE) && pT->attachedSurface ? (int)(pT->attachedSurface - sithWorld_g_pCurrentWorld->surfaces) : -1,
+                               (pT->attach_flags & (SITH_ATTACH_THINGFACE|SITH_ATTACH_THING)) && pT->attachedThing ? (int)(pT->attachedThing - sithWorld_g_pCurrentWorld->aThings) : -1);
+        }
         SithSector* pSec = pThing->sector;
         int runIdx = -1, walkIdx = -1;
         if (pThing->pSoundClass != NULL)

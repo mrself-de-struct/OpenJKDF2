@@ -1,4 +1,6 @@
 #include "sithThing.h"
+#include "Main/Main.h" // Added: Main_bDroidWorks (DroidWorks damage log)
+#include "Gameplay/sithTime.h" // Added: sithTime_g_curMs (DroidWorks damage log)
 
 #include "General/stdHashtbl.h"
 #include "General/util.h"
@@ -471,6 +473,20 @@ flex_t sithThing_DamageThing(SithThing *pThing, SithThing *pDamageThing, flex_t 
         return 0.0;
     if ( (pThing->flags & (SITH_TF_DISABLED|SITH_TF_DEAD|SITH_TF_DESTROYED)) != 0 )
         return 0.0;
+    // Added: DroidWorks diagnostic — damage to a non-player actor (mission props), at most
+    // four lines a second so a sustained crush does not flood the log.
+    if (Main_bDroidWorks && pThing->type == SITH_THING_ACTOR)
+    {
+        static uint32_t sithThing_dwLastDamageLogMs = 0;
+        if ((uint32_t)sithTime_g_msecGameTime - sithThing_dwLastDamageLogMs >= 250)
+        {
+            sithThing_dwLastDamageLogMs = (uint32_t)sithTime_g_msecGameTime;
+            stdPlatform_Printf("DW: thing %d damaged %.1f (type 0x%x) by thing %d, health %.1f\n",
+                               (int)(pThing - sithWorld_g_pCurrentWorld->aThings), damage, hitType,
+                               pDamageThing ? (int)(pDamageThing - sithWorld_g_pCurrentWorld->aThings) : -1,
+                               pThing->actorParams.health);
+        }
+    }
     if ( (pThing->flags & SITH_TF_CAPTURED) != 0 && (pThing->flags & SITH_TF_INVULN) == 0 )
     {
         param1 = (flex_t)(unsigned int)hitType; // FLEXTODO
