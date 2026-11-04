@@ -46,6 +46,7 @@ int sithSoundMixer_Startup();
 void sithSoundMixer_Shutdown();
 int sithSoundMixer_PlaySong(unsigned int trackFrom, unsigned int trackTo, unsigned int trackNum, int a4);
 void sithSoundMixer_StopSong();
+int sithSoundMixer_DwShuffleTracks(int track0, int track1, int track2, int track3); // Added: DroidWorks ShuffleTracks
 MATH_FUNC void sithSoundMixer_UpdateMusicVolume(flex_t musicVolume);
 MATH_FUNC void sithSoundMixer_SetMusicVol(flex_t volume);
 void sithSoundMixer_ResumeMusic(int a1);

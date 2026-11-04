@@ -19,6 +19,17 @@ void sithCogFunctionSound_PlaySong(sithCog *pCog)
         sithSoundMixer_PlaySong(trackFrom, trackTo, trackNum, 1);
 }
 
+// Added: DroidWorks' ShuffleTracks(t0, t1, t2, t3) verb (DroidWorks.exe 0x46f2c0).
+void sithCogFunctionSound_DwShuffleTracks(sithCog *pCog)
+{
+    int track0 = sithCogExec_PopInt(pCog);
+    int track1 = sithCogExec_PopInt(pCog);
+    int track2 = sithCogExec_PopInt(pCog);
+    int track3 = sithCogExec_PopInt(pCog);
+
+    sithSoundMixer_DwShuffleTracks(track0, track1, track2, track3);
+}
+
 void sithCogFunctionSound_PlaySoundThing(sithCog *pCog)
 {
     flex_d_t maxDist_act; // st7
@@ -580,6 +591,8 @@ void sithCogFunctionSound_PlaySoundThingAndWait(sithCog *pCog)
 void sithCogFunctionSound_Startup(SithCogSymbolTable* pCog)
 {
     sithCog_RegisterFunction(pCog, sithCogFunctionSound_PlaySong, "playsong");
+    if (Main_bDroidWorks) // Added: DroidWorks-only verb
+        sithCog_RegisterFunction(pCog, sithCogFunctionSound_DwShuffleTracks, "shuffletracks");
     sithCog_RegisterFunction(pCog, sithCogFunctionSound_PlaySoundThing, "playsoundthing");
     if (Main_bMotsCompat) {
         sithCog_RegisterFunction(pCog, sithCogFunctionSound_PlaySoundThingLocal, "playsoundthinglocal");

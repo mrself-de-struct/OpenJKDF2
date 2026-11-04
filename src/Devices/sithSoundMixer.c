@@ -15,6 +15,13 @@
 #include "General/stdMath.h"
 #include "jk.h"
 
+// Added: DroidWorks' ShuffleTracks state (DroidWorks.exe sithSoundMixer 0x45e910, tick 0x45ec05).
+// A set of four CD tracks played in random order: ShuffleTracks starts one at random and the
+// music tick, finding the CD stopped, moves on to track (index + rand() % 3) & 3.
+static int sithSoundMixer_aDwShuffleTracks[4]; // DroidWorks.exe 0x68e170
+static int sithSoundMixer_bDwShuffle;          // DroidWorks.exe 0x5451b4
+static int sithSoundMixer_dwShuffleIdx;        // DroidWorks.exe 0x5451b8
+
 int sithSoundMixer_Startup()
 {
     if ( !stdMci_Startup() )
@@ -62,6 +69,7 @@ int sithSoundMixer_PlaySong(unsigned int trackFrom, unsigned int trackTo, unsign
     sithSoundMixer_bPlayingMci = 1;
     sithSoundMixer_trackTo = trackTo_;
     sithSoundMixer_dword_835FCC = a4;
+    sithSoundMixer_bDwShuffle = 0; // Added: DroidWorks (DroidWorks.exe 0x45e89b) leaves shuffle mode
     if ( !sithSoundMixer_bIsMuted )
     {
         if ( sithSoundMixer_bInitted )
@@ -90,6 +98,50 @@ void sithSoundMixer_StopSong()
     }
 }
 
+// Added: DroidWorks' ShuffleTracks(t0, t1, t2, t3) (DroidWorks.exe 0x45e910): play one of four
+// CD tracks at random; the tick (sithSoundMixer_DwRestartMusic) keeps picking from the set.
+int sithSoundMixer_DwShuffleTracks(int track0, int track1, int track2, int track3)
+{
+    int track;
+
+    if ( sithSoundMixer_bPlayingMci )
+        sithSoundMixer_StopSong();
+    sithSoundMixer_aDwShuffleTracks[0] = track0;
+    sithSoundMixer_aDwShuffleTracks[1] = track1;
+    sithSoundMixer_aDwShuffleTracks[2] = track2;
+    sithSoundMixer_aDwShuffleTracks[3] = track3;
+    sithSoundMixer_bPlayingMci = 1;
+    sithSoundMixer_bDwShuffle = 1;
+    sithSoundMixer_dword_835FCC = 1;
+    if ( sithSoundMixer_bIsMuted )
+        return 1;
+
+    sithSoundMixer_SetMusicVol(1.0);
+    sithSoundMixer_dwShuffleIdx = _rand() % 4;
+    track = sithSoundMixer_aDwShuffleTracks[sithSoundMixer_dwShuffleIdx];
+    if ( sithSoundMixer_globalVolume > 0.0 && !stdMci_Play(track, track) )
+    {
+        sithSoundMixer_bPlayingMci = 0;
+        return 0;
+    }
+    sithSoundMixer_flt_835FD8 = sithTime_g_secGameTime + 5.0;
+    return 1;
+}
+
+// Added: the music tick's restart of a stopped CD. JK (and a DroidWorks PlaySong) replays the
+// trackFrom..trackTo range; a DroidWorks shuffle set moves to another of its four tracks
+// (DroidWorks.exe 0x45ec05: index = (index + rand() % 3) & 3).
+static int sithSoundMixer_DwRestartMusic()
+{
+    int track;
+
+    if ( !sithSoundMixer_bDwShuffle )
+        return stdMci_Play(sithSoundMixer_trackFrom, sithSoundMixer_trackTo);
+    sithSoundMixer_dwShuffleIdx = (sithSoundMixer_dwShuffleIdx + _rand() % 3) & 3;
+    track = sithSoundMixer_aDwShuffleTracks[sithSoundMixer_dwShuffleIdx];
+    return stdMci_Play(track, track);
+}
+
 void sithSoundMixer_UpdateMusicVolume(flex_t musicVolume)
 {
     sithSoundMixer_globalVolume = stdMath_Clamp(musicVolume, 0.0, 1.0);
@@ -108,7 +160,7 @@ void sithSoundMixer_UpdateMusicVolume(flex_t musicVolume)
         if (sithSoundMixer_bPlayingMci && sithSoundMixer_dword_835FCC)
         {
             sithSoundMixer_flt_835FD8 = sithTime_g_secGameTime - -5.0;
-            if ( !stdMci_CheckStatus() && !stdMci_Play(sithSoundMixer_trackFrom, sithSoundMixer_trackTo) )
+            if ( !stdMci_CheckStatus() && !sithSoundMixer_DwRestartMusic() ) // Altered: shuffle-aware restart
             {
                 sithSoundMixer_bPlayingMci = 0;
                 sithSoundMixer_dword_835FCC = 0;
@@ -140,7 +192,7 @@ void sithSoundMixer_ResumeMusic(int bNotInPauseMenu)
       && (bNotInPauseMenu || sithSoundMixer_flt_835FD8 <= (flex_d_t)sithTime_g_secGameTime) )
     {
         sithSoundMixer_flt_835FD8 = sithTime_g_secGameTime - -5.0;
-        if ( !stdMci_CheckStatus() && !stdMci_Play(sithSoundMixer_trackFrom, sithSoundMixer_trackTo) )
+        if ( !stdMci_CheckStatus() && !sithSoundMixer_DwRestartMusic() ) // Altered: shuffle-aware restart
         {
             sithSoundMixer_bPlayingMci = 0;
             sithSoundMixer_dword_835FCC = 0;
