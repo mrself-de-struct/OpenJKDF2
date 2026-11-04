@@ -877,6 +877,7 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     static int mvThing[4] = { -1, -1, -1, -1 }, bMvDone[4] = { 0, 0, 0, 0 }, numMv = 0; static float mvPos[4][3]; static unsigned mvMs[4];
     static unsigned irMs = 0; static int bIrDone = 0, irAdd = 0; // ir:<ms>[,<add>] = what the headlight cog does
     static int ttThing = -1; // tt:<thing> = also trace that world thing (position, sector, attach, collide)
+    static char ttName[32] = ""; // ttn:<template> = trace every thing created from that template
     static int dmgThing = -1, bDmgDone = 0; static float dmgAmount = 0.0f; static unsigned dmgMs = 0; // dmg:<thing>,<amount>@ms
     extern uint8_t stdControl_aDebugKeyForce[];
     if (!bParsed)
@@ -903,6 +904,8 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
             else if (numMv < 4 && sscanf(pTok, "mv:%d,%f,%f,%f@%u", &mvThing[numMv], &mvPos[numMv][0], &mvPos[numMv][1], &mvPos[numMv][2], &mvMs[numMv]) == 5)
                 numMv++;
             else if (sscanf(pTok, "ir:%u,%d", &irMs, &irAdd) == 2 || sscanf(pTok, "ir:%u", &irMs) == 1)
+                ;
+            else if (sscanf(pTok, "ttn:%31s", ttName) == 1)
                 ;
             else if (sscanf(pTok, "tt:%d", &ttThing) == 1)
                 ;
@@ -1014,15 +1017,26 @@ static void dwGuiInGame_DebugScript(SithThing* pThing)
     if (traceMs != 0 && now >= nextTrace)
     {
         nextTrace = now + traceMs;
-        if (ttThing >= 0 && ttThing < (int)sithWorld_g_pCurrentWorld->numThings)
+        for (int idx = 0; idx < (int)sithWorld_g_pCurrentWorld->numThings; idx++)
         {
-            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[ttThing];
+            SithThing* pT = &sithWorld_g_pCurrentWorld->aThings[idx];
+            if (idx != ttThing)
+            {
+                if (ttName[0] == '\0' || pT->type == SITH_THING_FREE || pT->pTemplate == NULL)
+                    continue;
+#ifdef SITH_DEBUG_STRUCT_NAMES
+                if (strcmp(pT->pTemplate->aName, ttName) != 0)
+                    continue;
+#else
+                continue;
+#endif
+            }
             stdPlatform_Printf("DEBUGSCRIPT: thing %d t=%u type %d collide %d pos %.4f %.4f %.4f vel %.3f %.3f %.3f sector %d attach 0x%x light %.3f flags 0x%x\n",
-                               ttThing, now, pT->type, pT->collide, pT->position.x, pT->position.y, pT->position.z,
+                               idx, now, pT->type, pT->collide, pT->position.x, pT->position.y, pT->position.z,
                                pT->physicsParams.vel.x, pT->physicsParams.vel.y, pT->physicsParams.vel.z,
                                pT->sector ? (int)(pT->sector - sithWorld_g_pCurrentWorld->aSectors) : -1,
                                pT->attach_flags, pT->light, pT->flags);
-            stdPlatform_Printf("DEBUGSCRIPT: thing %d health %.2f/%.2f attachedSurface %d attachedThing %d\n", ttThing,
+            stdPlatform_Printf("DEBUGSCRIPT: thing %d health %.2f/%.2f attachedSurface %d attachedThing %d\n", idx,
                                pT->actorParams.health, pT->actorParams.maxHealth,
                                (pT->attach_flags & SITH_ATTACH_SURFACE) && pT->attachedSurface ? (int)(pT->attachedSurface - sithWorld_g_pCurrentWorld->surfaces) : -1,
                                (pT->attach_flags & (SITH_ATTACH_THINGFACE|SITH_ATTACH_THING)) && pT->attachedThing ? (int)(pT->attachedThing - sithWorld_g_pCurrentWorld->aThings) : -1);

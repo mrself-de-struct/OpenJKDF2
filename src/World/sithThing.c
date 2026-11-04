@@ -481,10 +481,15 @@ flex_t sithThing_DamageThing(SithThing *pThing, SithThing *pDamageThing, flex_t 
         if ((uint32_t)sithTime_g_msecGameTime - sithThing_dwLastDamageLogMs >= 250)
         {
             sithThing_dwLastDamageLogMs = (uint32_t)sithTime_g_msecGameTime;
-            stdPlatform_Printf("DW: thing %d damaged %.1f (type 0x%x) by thing %d, health %.1f\n",
+            stdPlatform_Printf("DW: thing %d damaged %.1f (type 0x%x) by thing %d, health %.1f, at %.3f %.3f %.3f vel %.2f %.2f %.2f sector %d attach 0x%x to %d\n",
                                (int)(pThing - sithWorld_g_pCurrentWorld->aThings), damage, hitType,
                                pDamageThing ? (int)(pDamageThing - sithWorld_g_pCurrentWorld->aThings) : -1,
-                               pThing->actorParams.health);
+                               pThing->actorParams.health,
+                               pThing->position.x, pThing->position.y, pThing->position.z,
+                               pThing->physicsParams.vel.x, pThing->physicsParams.vel.y, pThing->physicsParams.vel.z,
+                               pThing->sector ? (int)(pThing->sector - sithWorld_g_pCurrentWorld->aSectors) : -1,
+                               pThing->attach_flags,
+                               (pThing->attach_flags & (SITH_ATTACH_THINGFACE|SITH_ATTACH_THING)) && pThing->attachedThing ? (int)(pThing->attachedThing - sithWorld_g_pCurrentWorld->aThings) : -1);
         }
     }
     if ( (pThing->flags & SITH_TF_CAPTURED) != 0 && (pThing->flags & SITH_TF_INVULN) == 0 )
