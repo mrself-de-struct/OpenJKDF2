@@ -11,6 +11,7 @@
 #include "Engine/sithCollision.h"
 #include "Primitives/rdMath.h"
 #include "jk.h"
+#include "Main/Main.h" // Added: Main_bDroidWorks
 
 extern int sithCollision_bDebugCollide;
 
@@ -145,7 +146,17 @@ int sithIntersect_CheckSphereThingIntersection(SithThing *pThing, const rdVector
         return SITHCOLLISION_THING;
     }
 
-    if (pCheck->collide == SITH_COLLIDE_FACE || MOTS_ONLY_FLAG(pCheck->collide == SITH_COLLIDE_SPHERE_TREE))
+    // Altered: DroidWorks (DroidWorks.exe 0x47a5bd): when both things use face collision, the
+    // larger one keeps its mesh and the smaller one is swept as a sphere. JK always meshes the
+    // thing being checked, so a big mover such as a magnet tram (size 0.75) or a sliding incline
+    // became a sphere of its full size and crushed crates that its model never touched.
+    int bCheckMesh = pCheck->collide == SITH_COLLIDE_FACE || MOTS_ONLY_FLAG(pCheck->collide == SITH_COLLIDE_SPHERE_TREE);
+    if (Main_bDroidWorks && pCheck->collide == SITH_COLLIDE_FACE && pThing && pThing->collide == SITH_COLLIDE_FACE
+        && pThing->collideSize >= pCheck->collideSize)
+    {
+        bCheckMesh = 0;
+    }
+    if (bCheckMesh)
     {
         rdVector_Copy3(&dirVec, moveNorm);
         rdVector_Copy3(&posVec, startPos);
