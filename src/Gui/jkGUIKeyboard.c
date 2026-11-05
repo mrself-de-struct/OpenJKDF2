@@ -475,7 +475,16 @@ int jkGuiKeyboard_CancelClicked(jkGuiElement *pElement, jkGuiMenu *pMenu, int32_
 {
     jkGuiRend_PlayWav(pMenu->soundClick);
     if ( !jkGuiKeyboard_bOnceIdk )
+    {
+#ifdef QOL_IMPROVEMENTS
+        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Cancel throws them away. (Esc while waiting for a key still just
+        // stops waiting, below.)
+        if ( jkGuiRend_IsEscapeKeyClick(pElement) )
+            return jkGuiKeyboard_aElements[15].hoverId;
+#endif
         return pElement->hoverId;
+    }
     jkGuiKeyboard_bOnceIdk = 0;
     if ( jkGuiKeyboard_dword_555DE0 )
         stdControl_SetActivation(0);

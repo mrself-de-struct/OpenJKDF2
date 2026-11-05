@@ -18,16 +18,6 @@
 	url = https://github.com/madler/zlib.git
 	branch = v1.2.13
 	shallow = true
-[submodule "GameNetworkingSockets"]
-	path = lib/GameNetworkingSockets
-	url = https://github.com/ValveSoftware/GameNetworkingSockets.git
-	branch = v1.4.1
-	shallow = true
-[submodule "protobuf"]
-	path = lib/protobuf
-	url = https://github.com/protocolbuffers/protobuf.git
-	branch = v21.12
-	shallow = true
 [submodule "physfs"]
 	path = lib/physfs
 	url = https://github.com/icculus/physfs.git

@@ -644,12 +644,13 @@ void stdSound_BufferSetVolume(stdSound_buffer_t* sound, flex_t vol)
         return;
 
     alSourcef(sound->source, AL_GAIN, sound->vol);
-    
-    if (vol == 0.0)
-    {
-        alSourcei(sound->source, AL_LOOPING, AL_FALSE);
-        alSourceStop(sound->source);
-    }
+
+    // Altered: volume 0 also stopped the source and switched its looping off,
+    // which DirectSound's SetVolume never did. Loops that start silent and
+    // fade in (the bowcaster's charge-up) died on their second frame in
+    // third person, where the mixer sets the volume of a playing sound every
+    // tick; the fade then raised a stopped source. Sounds meant to end are
+    // stopped by the mixer (SITHSOUNDFLAG_FADING, StopSound).
 }
 
 int stdSound_3DSetMode(stdSound_buffer_t* a1, int a2)

@@ -30,8 +30,7 @@ endif()
 
     # These are the standard features for full game support
     set(TARGET_USE_PHYSFS FALSE)
-    #set(TARGET_USE_BASICSOCKETS TRUE)
-    set(TARGET_USE_GAMENETWORKINGSOCKETS FALSE)
+    set(TARGET_USE_DPLAY FALSE)
     set(TARGET_USE_LIBSMACKER TRUE)
     set(TARGET_USE_LIBSMUSHER TRUE)
     set(TARGET_USE_SDL2 FALSE)

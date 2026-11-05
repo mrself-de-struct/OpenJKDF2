@@ -11,8 +11,6 @@ lipo -create -output OpenJKDF2_universal.app/Contents/MacOS/openjkdf2-64 OpenJKD
 
 lipo -create -output OpenJKDF2_universal.app/Contents/MacOS/libz.1.dylib OpenJKDF2.app/Contents/MacOS/libz.1.dylib OpenJKDF2_x86_64.app/Contents/MacOS/libz.1.dylib
 
-lipo -create -output OpenJKDF2_universal.app/Contents/MacOS/libGameNetworkingSockets.dylib OpenJKDF2.app/Contents/MacOS/libGameNetworkingSockets.dylib OpenJKDF2_x86_64.app/Contents/MacOS/libGameNetworkingSockets.dylib
-lipo -create -output OpenJKDF2_universal.app/Contents/MacOS/libcrypto.1.1.dylib OpenJKDF2.app/Contents/MacOS/libcrypto.1.1.dylib OpenJKDF2_x86_64.app/Contents/MacOS/libcrypto.1.1.dylib
 
 chmod 774 OpenJKDF2_universal.app/Contents/MacOS/openjkdf2-64
 chmod 774 OpenJKDF2_universal.app/Contents/MacOS/*.dylib

@@ -7,6 +7,9 @@
 #include "Main/jkTouchControls.h"
 
 #include <SDL3/SDL.h>
+#ifdef ARCH_WASM
+#include <emscripten.h>
+#endif
 
 #include "jk.h"
 
@@ -301,6 +304,30 @@ void stdControl_IgnoreHeldKeys()
         stdControl_aDebounce[i] = !!state[i];
     }
 }
+
+#ifdef ARCH_WASM
+// Added: for the page's key check (index.html?keycheck). The game key a key
+// (as an SDL scancode) turns into, 0 if the game ignores it, plus 0x100 while
+// SDL has it held.
+EMSCRIPTEN_KEEPALIVE int stdControl_WebKeyCheck(int scancode)
+{
+    if (scancode < 0 || scancode >= 256)
+        return 0;
+    const bool *state = SDL_GetKeyboardState(NULL);
+    return (state[scancode] ? 0x100 : 0) | stdControl_aSdlToDik[scancode];
+}
+
+// Added: the game's name for a game key, as its key binds are written.
+EMSCRIPTEN_KEEPALIVE const char* stdControl_WebKeyName(int dik)
+{
+    for (int i = 0; i < JK_TOTAL_NUM_KEYS; i++)
+    {
+        if (stdControl_aDikNumToStr[i].val == dik)
+            return stdControl_aDikNumToStr[i].pStr;
+    }
+    return "";
+}
+#endif
 
 // Added: see stdControl.h -- tracks real hardware separately from
 // stdControl_aJoystickExists, which touch builds populate for the virtual pad.
@@ -1093,10 +1120,22 @@ void stdControl_ReadMouse()
     stdControl_aAxes[AXIS_MOUSE_Y].fRangeConversion = 1.0 / (flex_d_t)(stdControl_aAxes[AXIS_MOUSE_Y].uMaxVal - stdControl_aAxes[AXIS_MOUSE_Y].dwXoffs);
 
     stdControl_aAxisStates[AXIS_MOUSE_Z] = Window_mouseWheelY; // TODO
-    stdControl_aAxisStates[AXIS_MOUSE_X] = Window_lastXRel; // TODO
-    stdControl_aAxisStates[AXIS_MOUSE_Y] = Window_lastYRel; // TODO
 
-    if (Window_lastXRel || Window_lastYRel || Window_mouseWheelX || Window_mouseWheelY) {
+    // Added: m_systemAccel (SDL watches the hint, takes effect right away)
+    static int lastSystemAccel = -1;
+    if (stdControl_bMouseSystemAccel != lastSystemAccel) {
+        SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, stdControl_bMouseSystemAccel ? "1" : "0");
+        lastSystemAccel = stdControl_bMouseSystemAccel;
+    }
+
+    // Altered: SDL3's motion is fractional (Wayland, macOS, high-resolution mice) and was
+    // truncated per event, so slow movement got lost. Window_mouseXRelF keeps it; the touch
+    // pad still adds whole counts to Window_lastXRel. m_* tuning in stdControl_ProcessMouse.
+    flex_d_t mouseDX = (flex_d_t)Window_lastXRel + Window_mouseXRelF;
+    flex_d_t mouseDY = (flex_d_t)Window_lastYRel + Window_mouseYRelF;
+    stdControl_ProcessMouse(mouseDX, mouseDY, stdControl_readDeltaTime);
+
+    if (mouseDX != 0.0 || mouseDY != 0.0 || Window_mouseWheelX || Window_mouseWheelY) {
         stdControl_bControlsIdle = 0;
     }
 
@@ -1110,6 +1149,8 @@ void stdControl_ReadMouse()
 
     Window_lastXRel = 0;
     Window_lastYRel = 0;
+    Window_mouseXRelF = 0.0;
+    Window_mouseYRelF = 0.0;
     Window_mouseWheelX = 0;
     Window_mouseWheelY = 0;
 

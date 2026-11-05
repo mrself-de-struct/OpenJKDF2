@@ -1654,6 +1654,18 @@ int jkHud_Chat()
     return jkDev_sub_41FB80(103, tmp);
 }
 
+// Added: a chat line that's really an rcon command ("rcon ...", "rcon_password ...",
+// "rcon_address ..."; also with a leading / or \), which "Send to all" would show to
+// everyone, password and all.
+static int jkHud_IsRconLine(const char* pStr)
+{
+    while ( *pStr == ' ' || *pStr == '\t' ) pStr++;
+    if ( *pStr == '/' || *pStr == '\\' ) pStr++;
+    if ( __strnicmp(pStr, "rcon", 4) )
+        return 0;
+    return pStr[4] == 0 || pStr[4] == ' ' || pStr[4] == '\t' || pStr[4] == '_';
+}
+
 // MOTS altered
 void jkHud_SendChat(char a1)
 {
@@ -1667,7 +1679,12 @@ void jkHud_SendChat(char a1)
     {
         if ( jkHud_chatStrPos )
         {
-            if ( jkHud_dword_552D10 == -1 && sithNet_isMulti )
+            if ( jkHud_dword_552D10 == -1 && sithNet_isMulti && jkHud_IsRconLine(jkHud_chatStr) )
+            {
+                // Added: not to everyone (see jkHud_IsRconLine)
+                jkDev_DebugLog("Not sent: that looks like an rcon command. Type it in the console (~), not the chat.");
+            }
+            else if ( jkHud_dword_552D10 == -1 && sithNet_isMulti )
             {
                 _sprintf(std_g_genBuffer, "You say, '%s'", jkHud_chatStr);
                 jkDev_DebugLog(std_g_genBuffer);

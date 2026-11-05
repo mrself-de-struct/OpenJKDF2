@@ -72,6 +72,14 @@ void sithWeapon_SelectNextWeapon(SithThing* pThing);
 void sithWeapon_SelectPreviousWeapon(SithThing* pThing);
 void sithWeapon_SetFireRate(SithThing *weapon, flex32_t fireRate);
 
+#ifdef PLATFORM_DPLAY
+// Added: Hit what you see: where another game's shot starts here, when
+// sithDSSThing_ProcessFire says (stdComm_WSRelay_ShotStart). NULL: at its
+// shooter, as before.
+extern SithSector* sithWeapon_pFireStartSector;
+extern rdVector3 sithWeapon_fireStartPos;
+#endif
+
 
 //static void (*sithWeapon_HandleImpact)(SithThing *a1) = (void*)sithWeapon_HandleImpact_ADDR;
 //static void (*sithWeapon_sub_4D3920)(SithThing *a1) = (void*)sithWeapon_sub_4D3920_ADDR;

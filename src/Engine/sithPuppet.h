@@ -32,6 +32,7 @@ int sithPuppet_PlayKey(rdPuppet *pPuppet, rdKeyframe *pTrack, int lowPriority, i
 void sithPuppet_ResetTrack(SithThing *pThing);
 MATH_FUNC void sithPuppet_UpdatePuppet(SithThing *pThing, flex_t secDeltaTime);
 flex_t sithPuppet_UpdateThingMove(SithThing *pThing);
+void sithPuppet_SetNetVelocity(SithThing *pThing, const rdVector3 *pVel); // Added
 void sithPuppet_sub_4E4A20(SithThing *thing, SithPuppetClassSubmode *animClass);
 void sithPuppet_DefaultCallback(SithThing *pThing, int32_t track, uint32_t markerType);
 int sithPuppet_StopKey(rdPuppet *pPuppet, int track, flex_t fadeTime);

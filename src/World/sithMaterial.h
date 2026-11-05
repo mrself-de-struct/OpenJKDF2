@@ -20,6 +20,7 @@ void sithMaterial_FreeWorldMaterials(SithWorld *pWorld);
 MATH_FUNC int sithMaterial_ReadMaterialsListText(SithWorld *pWorld, int bSkip);
 rdMaterial* sithMaterial_Load(const char *pName, int create_ddraw_surface, int gpu_mem);
 rdMaterial* sithMaterial_GetMaterialByIndex(int index);
+rdMaterial* sithMaterial_FindByName(const char *pName); // Added
 int sithMaterial_GetMemorySize(rdMaterial *mat);
 rdVector2* sithMaterial_AllocWorldMaterials(SithWorld *pWorld, int numMaterials);
 void sithMaterial_UnloadAll();

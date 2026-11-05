@@ -20,6 +20,7 @@ extern int sithComm_version;
 int sithComm_Startup();
 void sithMessage_Shutdown();
 void sithMessage_RegisterFunction(int type, cogMsg_Handler pFunc);
+extern int sithComm_msgInProgress; // Added
 int sithComm_SendMsgToPlayer(SithMessage *pMessage, int idTo, int outstream, int dwDPFlags);
 void sithMessage_FileWrite(SithMessage *pMessage);
 int sithMessage_ProcessMessages();
@@ -28,5 +29,6 @@ int sithMessage_Process(SithMessage *pMessage);
 void sithComm_SyncWithPlayers();
 void sithComm_ClearMsgTmpBuf();
 int sithComm_cogMsg_Reset(SithMessage *msg);
+void sithComm_ForgetSender(int idx); // Added
 
 #endif // _DEVICES_SITHCOMM_H

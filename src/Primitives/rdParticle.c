@@ -9,7 +9,7 @@
 #include "Engine/rdClip.h"
 #include "Win95/std.h"
 
-static rdVector3 aParticleVerticesTmp[32];
+static rdVector3 aParticleVerticesTmp[RDCLIP_MAX_VERTICES]; // Altered: 32 -> RDCLIP_MAX_VERTICES
 static rdVector3 aParticleVertices[256];
 static rdParticleLoader_t rdParticle_loader;
 

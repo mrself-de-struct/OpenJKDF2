@@ -21,6 +21,7 @@
 #include "General/stdFnames.h"
 #include "General/stdMath.h"
 #include "Dss/sithDSSThing.h"
+#include "Devices/sithComm.h"
 #include "jk.h"
 
 // Added: noclip
@@ -33,6 +34,7 @@ void sithPlayer_Startup(int idx)
 
     v1 = &jkPlayer_playerInfos[idx];
     v1->flags = jkPlayer_playerInfos[idx].flags & ~1u;
+    sithComm_ForgetSender(v1->playerNetId); // Added: see sithComm_ForgetSender
     v1->playerNetId = 0;
     v2 = jkPlayer_playerInfos[idx].pLocalPlayer;
     if ( v2 )
@@ -502,6 +504,14 @@ void sithPlayer_NewPlayer(SithThing *pPlayer)
             v3 = pPlayer->puppet->field_18;
             if ( v3 >= 0 )
                 sithPuppet_StopKey(v1, v3, 0.0);
+
+            // Added: in multiplayer, a death pose can arrive while joining
+            // (sithDSS_ProcessPuppetStatus for a slot whose previous player
+            // died), which isn't recorded in field_18, so the stop above
+            // misses it and the new player runs around lying down until their
+            // first death. A spawn starts from a clean puppet anyway.
+            if (sithNet_isMulti)
+                sithPuppet_ResetTrack(pPlayer);
         }
     }
     if ( !sithNet_isMulti || (pPlayer->flags & SITH_TF_INVULN) == 0 )

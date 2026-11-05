@@ -66,7 +66,7 @@ SithThing* sithTemplate_GetTemplateByIndex(int idx)
     if ( idx & 0x8000 )
     {
         world = sithWorld_g_pStaticWorld;
-        idx &= ~0x8000; // ?
+        idx &= 0x7FFF; // Altered: was ~0x8000, which left a sign-extended s16 from the network negative (NULL)
     }
     
     if ( world && idx > 0 && idx < world->numThingTemplates ) // original doesn't check world, but Cog does?

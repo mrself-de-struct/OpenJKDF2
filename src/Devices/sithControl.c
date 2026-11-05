@@ -24,6 +24,9 @@
 #include "Main/Main.h"
 #include "Dw/dwCog.h"
 #include "jk.h"
+#ifdef ARCH_WASM
+#include <emscripten.h>
+#endif
 
 // Altered: Optionally match sidestep thrust to forward thrust in QOL builds.
 static flex_d_t sithControl_GetStrafeSpeedScale(void)
@@ -42,6 +45,7 @@ static char16_t sithControl_debugWStrTmp[256];
 
 // MOTS added
 static flex_t sithControl_008d7f44 = 0.0;
+
 static int sithControl_008d7f4c = 0;
 static int sithControl_008d7f50 = 0;
 static int sithControl_008d7f54 = 0;
@@ -1003,7 +1007,7 @@ flex_t sithControl_GetAxis(int axisId)
             v4 = v2->flags;
             if ( (v4 & 8) != 0 && ((sithWeapon_controlOptions & 0x20) == 0 || v1->dxKeyNum >= AXIS_MOUSE_X) )
             {
-                v5 = (flex_d_t)stdControl_ReadAxisRaw(v2->dxKeyNum);
+                v5 = (flex_d_t)stdControl_ReadAxisRawF(v2->dxKeyNum); // Added: mouse fractions (was ReadAxisRaw)
                 if ( (v4 & 4) != 0 )
                     v5 = -v5;
                 if ( v2->binaryAxisVal != 0.0 )
@@ -2179,6 +2183,16 @@ stdControlKeyInfo* sithControl_EnumBindings(sithControlEnumFunc_t pfFunc, int a2
     {
         int flags = sithControl_inputFuncToControlType[v7];
 
+        // Added: leave out functions nothing registered, which can't take a
+        // control (sithControl_BindControl). Ex. a hotkey named in jkstrings.uni
+        // whose item sithInventory_KeybindInit gave no slot.
+        if ( (flags & 1) == 0 )
+        {
+            ++v7;
+            result = ++v20;
+            continue;
+        }
+
         v18 = 0;
         v19 = 0;
         v17 = 0;
@@ -2634,3 +2648,38 @@ int sithControl_GetLastSelected() {
     return sithControl_lastSelected;
 }
 #endif // QOL_IMPROVEMENTS
+
+#ifdef ARCH_WASM
+// Added: for the page's key check (index.html?keycheck), which shows players
+// what each key they press is bound to, and what it does in a level.
+
+// The next command after funcIdx that dxKeyNum is bound to, -1 when none is.
+EMSCRIPTEN_KEEPALIVE int sithControl_WebKeyBinds(int dxKeyNum, int funcIdx)
+{
+    for (int i = funcIdx + 1; i < INPUT_FUNC_MAX; i++)
+    {
+        stdControlKeyInfo* pInfo = &sithControl_aInputFuncToKeyinfo[i];
+        for (uint32_t j = 0; j < pInfo->numEntries; j++)
+        {
+            if ((pInfo->aEntries[j].flags & INPUT_MAPPING_FLAG_DXKEY) && pInfo->aEntries[j].dxKeyNum == dxKeyNum)
+                return i;
+        }
+    }
+    return -1;
+}
+
+// Whether a command is down right now, read as the game reads it in a level.
+EMSCRIPTEN_KEEPALIVE int sithControl_WebFunctionDown(int funcIdx)
+{
+    if (funcIdx < 0 || funcIdx >= INPUT_FUNC_MAX)
+        return 0;
+    return !!sithControl_GetKey(funcIdx, NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* sithControl_WebFunctionName(int funcIdx)
+{
+    if (funcIdx < 0 || funcIdx >= INPUT_FUNC_MAX)
+        return "";
+    return sithControl_aFunctionStrs[funcIdx];
+}
+#endif // ARCH_WASM

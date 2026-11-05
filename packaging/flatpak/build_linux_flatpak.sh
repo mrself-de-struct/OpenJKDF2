@@ -5,7 +5,6 @@ git submodule update --init
 mkdir -p build_linux && pushd build_linux
 
 cmake -DCMAKE_INSTALL_PREFIX=$FLATPAK_DEST .. &&
-(make -j $(nproc) PROTOBUF || make -j1 PROTOBUF) && 
 make -j $(nproc) openjkdf2 &&
 popd &&
 mkdir -p $FLATPAK_DEST/share/applications/ &&

@@ -48,6 +48,12 @@ void stdControl_SetSDLKeydown(int keyNum, int bDown, uint32_t readTime);
 
 MATH_FUNC void stdControl_RegisterAxis(int index, int stickMin, int stickMax, flex_t multiplier);
 
+// Added: mouse tuning (m_* cvars)
+void stdControl_StartupCvars();
+void stdControl_ProcessMouse(flex_d_t dx, flex_d_t dy, uint32_t dtMs);
+MATH_FUNC flex_t stdControl_ReadAxisRawF(int axisNum);
+extern int stdControl_bMouseSystemAccel;
+
 #if !defined(SDL2_RENDER) && defined(WIN32)
 static int (*stdControl_Startup)() = (void*)stdControl_Startup_ADDR;
 static void (*stdControl_Shutdown)() = (void*)stdControl_Shutdown_ADDR;

@@ -21,8 +21,6 @@ C_INCLUDE_PATH=""
 # End ughhhh
 
 cmake .. --toolchain $(pwd)/../cmake_modules/toolchain_mingw.cmake &&
-(make -j $(nproc) PROTOBUF || make -j1 PROTOBUF) && 
-(make -j $(nproc) PROTOC || make -j1 PROTOC) && 
 make -j $(nproc) openjkdf2-64
 if [ $? -ne 0 ]; then
     exit -1

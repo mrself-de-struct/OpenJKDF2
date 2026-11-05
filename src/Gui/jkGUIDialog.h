@@ -17,4 +17,10 @@ int jkGuiDialog_OkCancelDialog(char16_t *stringA, char16_t *stringB);
 void jkGuiDialog_ErrorDialog(char16_t *stringA, char16_t *stringB);
 int jkGuiDialog_YesNoDialog(char16_t *stringA, char16_t *stringB);
 
+#ifdef PLATFORM_DPLAY
+// Added: stays up while tick() returns 0 (tick writes the status line);
+// returns tick's 1 (done) or -1 (failed), or -2 if the player cancelled.
+int jkGuiDialog_ProgressDialog(char16_t* title, int (*tick)(void* ctx, char16_t* text, int maxChars), void* ctx);
+#endif
+
 #endif // _JKGUIDIALOG_H

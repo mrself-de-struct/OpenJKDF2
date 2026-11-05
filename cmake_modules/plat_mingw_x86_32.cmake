@@ -30,12 +30,26 @@ macro(plat_initialize)
     set(TARGET_USE_CURL FALSE)
     set(TARGET_COMPILE_FREEGLUT FALSE)  # No GLUT/GLEW on the GL 1.1 path
     set(TARGET_FIND_OPENAL FALSE)
-    set(TARGET_USE_GAMENETWORKINGSOCKETS FALSE)
+    # Real DirectPlay for interop with vanilla JK.EXE. Disable with -DTARGET_USE_DPLAY=OFF.
+    if(NOT DEFINED TARGET_USE_DPLAY)
+        set(TARGET_USE_DPLAY TRUE)
+    endif()
 
 
     add_compile_definitions(main=SDL_main _MBCS)
     # TODO: Bump to O2 eventually. MinGW likes to replace memset with calls to itself...
     add_compile_options(-pthread -Wall -Wno-unused-variable -Wno-parentheses -Wno-missing-braces)
+    # GCC 14+ made some long-standing C warnings errors by default. OpenJKDF2's
+    # Win32 stand-in declarations (src/jk.h) trip -Wint-conversion and
+    # -Wincompatible-pointer-types, e.g. in jkGUIRend.c; keep them warnings.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
+        add_compile_options(
+            $<$<COMPILE_LANGUAGE:C>:-Wno-error=int-conversion>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-error=incompatible-pointer-types>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-error=return-mismatch>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-error=implicit-int>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-error=declaration-missing-parameter-type>)
+    endif()
     if(CMAKE_BUILD_TYPE STREQUAL Debug)
         add_compile_options(-Og)
     else()
@@ -74,10 +88,12 @@ macro(plat_link_and_package)
         target_link_libraries(sith_engine PRIVATE OpenAL::OpenAL)
     endif()
     target_link_libraries(sith_engine PRIVATE nlohmann_json::nlohmann_json)
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        # Loaded at runtime via LoadLibrary("libGameNetworkingSockets.dll") in
-        # stdComm_GNS.cpp -- shipped as a DLL, not statically linked.
-        target_link_libraries(sith_engine PRIVATE GameNetworkingSockets::GameNetworkingSockets)
+    if(TARGET_USE_DPLAY)
+        target_link_libraries(sith_engine PRIVATE ZLIB::ZLIB) # Added: map/mod downloads in compressed blocks (jkweb_xfer.c)
+    endif()
+    if(TARGET_USE_DPLAY)
+        # Added: zlib.h from the zlib built here (ZLIB::ZLIB's static target carries no include path)
+        target_include_directories(sith_engine PRIVATE ${ZLIB_INCLUDE_DIRS})
     endif()
     if(TARGET_USE_PHYSFS)
         target_link_libraries(sith_engine PRIVATE PhysFS::PhysFS_s)
@@ -96,12 +112,4 @@ macro(plat_link_and_package)
         )
     endif()
 
-    # GameNetworkingSockets ships as a DLL (loaded on demand via LoadLibrary).
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        add_custom_command(
-            TARGET ${BIN_NAME}
-            POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/GameNetworkingSockets/bin/libGameNetworkingSockets.dll ${PROJECT_BINARY_DIR}
-        )
-    endif()
 endmacro()

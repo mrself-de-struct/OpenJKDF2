@@ -14,14 +14,11 @@ int stdComm_Startup()
     DirectPlay_Startup();
 #endif
 
-#ifdef PLATFORM_BASICSOCKETS
-    stdComm_Basic_Startup();
-#endif
-#ifdef PLATFORM_GNS
-    stdComm_GNS_Startup();
-#endif
 #ifdef PLATFORM_NOSOCKETS
     stdComm_None_Startup();
+#endif
+#ifdef PLATFORM_DPLAY
+    stdComm_DPlay_Startup();
 #endif
     stdComm_bInitted = 1;
 
@@ -35,9 +32,6 @@ void stdComm_Shutdown()
         DirectPlay_Destroy();
         stdComm_bInitted = 0;
     }
-#ifdef PLATFORM_GNS
-    stdComm_GNS_Shutdown();
-#endif
 }
 
 int stdComm_EarlyInit()
@@ -99,7 +93,9 @@ int stdComm_CreatePlayer(jkMultiEntry *pEntry)
         stdComm_dplayIdSelf = DirectPlay_CreatePlayer(jkPlayer_playerShortName, 0);
         if ( stdComm_dplayIdSelf )
         {
+#ifndef PLATFORM_DPLAY
             stdComm_dplayIdSelf = 1; // HACK
+#endif
             stdComm_bIsServer = 1;
             stdComm_dword_8321E0 = 1;
             result = 0;
@@ -186,7 +182,20 @@ int stdComm_SendToPlayer(SithMessage *msg, int sendto_id)
     for (int i = 0; i < jkPlayer_maxPlayers; i++)
     {
         SithPlayer* v5 = &jkPlayer_playerInfos[i];
+#ifdef PLATFORM_DPLAY
+        // Original condition. The "always send to slot 0" addition below would make a
+        // DirectPlay host send to its own DPID, which DirectPlay delivers locally.
+        // (The web lobby's OpenJKDF2 peers expect the addition; the lobby drops
+        // a host's packets to itself.)
+        // Altered: a joiner always sends to the host's slot. A dedicated host leaves
+        // its own slot out of the game (flags 4, sithMulti_SyncPlayers), so over the
+        // relay its joiners sent it nothing: no pickups, doors or switches, and it
+        // dropped them for silence. A normal host's slot is always in the game.
+        if ( (stdComm_bOpenJkdf2Wire && !i) || ((v5->flags & 1) != 0 && v5->playerNetId != stdComm_dplayIdSelf)
+             || (!sithNet_isServer && v5->playerNetId && v5->playerNetId == sithNet_serverNetId) )
+#else
         if ( !i || ((v5->flags & 1) != 0 && v5->playerNetId != stdComm_dplayIdSelf) ) // Added: always allow sending to 0, for dedicated servers' fake player
+#endif
         {
             DirectPlay_Send(stdComm_dplayIdSelf, v5->playerNetId, &msg->netMsg.cogMsgId, v2);
             ++stdComm_dword_8321F4;

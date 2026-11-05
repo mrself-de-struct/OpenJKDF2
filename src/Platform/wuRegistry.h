@@ -33,6 +33,11 @@ int wuRegistry_GetStr(LPCSTR lpValueName, char* lpData, int outSize, const char 
 int wuRegistry_SetWString(LPCSTR lpValueName, const char16_t *lpData);
 int wuRegistry_GetWString(LPCSTR lpValueName, char16_t* lpData, int outSize, const char16_t *outDefault);
 
+// Added: a dedicated server keeps its hosting settings (game name, password, map,
+// limits, connection, master...) in server.json instead of registry.json; the
+// first run moves them over. Call before anything reads them.
+void wuRegistry_UseServerFile(void);
+
 //static int (*wuRegistry_SaveFloat)(LPCSTR lpValueName, flex_t val) = (void*)wuRegistry_SaveFloat_ADDR;
 //static int (*wuRegistry_SaveInt)(LPCSTR lpValueName, int val) = (void*)wuRegistry_SaveInt_ADDR;
 //static int (*wuRegistry_SaveBool)(LPCSTR lpValueName, HKEY phkResult) = (void*)wuRegistry_SaveBool_ADDR;

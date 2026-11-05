@@ -19,6 +19,7 @@
 #include "World/sithWorld.h"
 #include "General/stdString.h"
 #include "General/stdFnames.h"
+#include "Platform/wuRegistry.h"
 #include "General/stdFileUtil.h"
 #include "World/jkPlayer.h"
 
@@ -309,6 +310,13 @@ void jkGuiPlayer_ShowNewPlayer(int a1)
                 }
                 v14 = 1;
                 continue;
+#ifdef QOL_IMPROVEMENTS
+            case 100: // Added: JKGUIPLAYER_CONNECT, the profile is loaded already
+                if ( jkPlayer_playerShortName[0] )
+                    continue; // v14 is 0: done
+                v14 = 1;
+                continue;
+#endif
             default:
                 continue;
         }
@@ -363,6 +371,47 @@ void jkGuiPlayer_ShowNewPlayer(int a1)
     while ( v14 );
     jkGuiRend_DarrayFree(&a1a);
 }
+
+#ifdef QOL_IMPROVEMENTS
+// Added: console commands that need a player profile (connect, reconnect, character,
+// characters) typed on the player screen, where none is picked yet: they use the last
+// one picked (registry "playerShortName", saved by jkGui_Shutdown). 0 if there's none.
+int jkGuiPlayer_UseLastProfile(void)
+{
+    char name[32] = {0};
+    char path[128];
+    char16_t wName[32];
+
+    if ( jkPlayer_playerShortName[0] )
+        return 1;
+    wuRegistry_GetStr("playerShortName", name, sizeof(name), "");
+    if ( !name[0] )
+        return 0;
+    stdString_snprintf(path, sizeof(path), "player%c%s%c%s.plr", LEC_PATH_SEPARATOR_CHR, name, LEC_PATH_SEPARATOR_CHR, name);
+    if ( !util_FileExistsLowLevel(path) )
+        return 0;
+    stdString_CharToWchar(wName, name, 31);
+    wName[31] = 0;
+    if ( !jkPlayer_ReadConf(wName) )
+    {
+        jkPlayer_playerShortName[0] = 0;
+        return 0;
+    }
+    return 1;
+}
+
+// Added: console "connect" on the player screen leaves it with the profile
+// jkGuiPlayer_UseLastProfile loaded (see jkGuiMain_ConnectNow).
+#define JKGUIPLAYER_CONNECT 100
+int jkGuiPlayer_ConnectNow(int bDo)
+{
+    if ( jkGuiRend_GetActiveMenu() != &jkGuiPlayer_menuSelect )
+        return 0;
+    if ( bDo )
+        jkGuiPlayer_menuSelect.lastClicked = JKGUIPLAYER_CONNECT;
+    return 1;
+}
+#endif
 
 int jkGuiPlayer_DifficultyDraw(jkGuiElement *element, jkGuiMenu *menu, int32_t mouseX, int32_t mouseY, int bRedraw)
 {

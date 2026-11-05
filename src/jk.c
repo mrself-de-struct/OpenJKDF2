@@ -1134,7 +1134,9 @@ char16_t* __wcscat(char16_t * a, const char16_t * b)
 {
     char16_t* ret = a;
     a += __wcslen(a);
-    memmove(a, b, __wcslen(b) * sizeof(char16_t));
+    // Fixed (from tristamus/OpenJKDF2 9a42643c): the terminator too, as wcscat does. Without it
+    // the Join screen's second line kept the tail of a longer line shown before it.
+    memmove(a, b, (__wcslen(b) + 1) * sizeof(char16_t));
     return ret;
 }
 

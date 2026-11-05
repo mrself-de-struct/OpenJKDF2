@@ -20,7 +20,23 @@
 #include "World/sithTemplate.h"
 #include "Main/jkQuakeConsole.h"
 #include "General/stdJSON.h"
+#include "General/stdFnames.h"
+#include "General/stdStrTable.h"
+#include "Gui/jkGUITitle.h"
+#include "Main/jkStrings.h"
 #include "jk.h"
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+#include "Main/Main.h"
+#include "World/jkPlayer.h"
+#include "Gui/jkGUIMain.h"
+#include "Main/jkMain.h"
+#include "General/stdFileUtil.h"
+#include "General/util.h"
+#include "Platform/wuRegistry.h"
+#include "Main/jkServer.h"
+#include "Gui/jkGUIPlayer.h"
+#include "Platform/Common/stdLog.h"
+#endif
 
 typedef struct sithCommandBind sithCommandBind;
 typedef struct sithCommandBind
@@ -37,8 +53,505 @@ static char sithCommand_aIdk[4]; // TODO symbols?
 #ifdef QOL_IMPROVEMENTS
 int sithCommand_CmdQuit(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 {
-    // TODO disconnect clients?
-    exit(0);
+    // Altered: as closing the window does (settings saved; a multiplayer game is left
+    // properly on the way out, stdComm_dplay.c's exit hook), not exit(0) on the spot,
+    // which left the server waiting for a timeout to notice.
+    g_should_exit = 1;
+    return 1;
+}
+#endif
+
+// Added: what kind of multiplayer game this is (connection, role, tick rate).
+int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    if ( !sithNet_isMulti )
+    {
+        sithConsole_PrintString("Not in a multiplayer game.");
+        return 1;
+    }
+
+#ifdef PLATFORM_DPLAY
+    char links[128];
+    char conn[384];
+    char gameName[64];
+    stdComm_DPlay_GetGameName(gameName, sizeof(gameName));
+    if ( gameName[0] )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "Game: %s", gameName);
+        sithConsole_PrintString(std_g_genBuffer);
+    }
+    stdComm_DPlay_DescribeConnection(conn, sizeof(conn), links, sizeof(links));
+    stdString_snprintf(std_g_genBuffer, 512, "Connection: %s", conn);
+    sithConsole_PrintString(std_g_genBuffer);
+    if ( links[0] )
+        sithConsole_PrintString(links);
+    sithConsole_PrintString(stdComm_bOpenJkdf2Wire ? "Messages: OpenJKDF2 layouts (web lobby, Imperial Network Protocol)" : "Messages: JK.EXE layouts");
+#endif
+
+    // The episode and level, by title when the episode or cog strings have one.
+    const char16_t* episodeTitle = NULL;
+    for (uint32_t i = 0; i < jkEpisode_var2; i++)
+    {
+        if ( !__strcmpi(jkEpisode_aEpisodes[i].name, jkRes_episodeGobName) && jkEpisode_aEpisodes[i].unistr[0] )
+        {
+            episodeTitle = jkEpisode_aEpisodes[i].unistr;
+            break;
+        }
+    }
+    // (no %S: it means wchar_t on Linux, not char16_t)
+    char title[128];
+    if ( episodeTitle )
+    {
+        stdString_WcharToChar(title, episodeTitle, sizeof(title) - 1);
+        title[sizeof(title) - 1] = 0;
+        stdString_snprintf(std_g_genBuffer, 512, "Episode: %s (%s)", title, jkRes_episodeGobName);
+    }
+    else
+        stdString_snprintf(std_g_genBuffer, 512, "Episode: %s", jkRes_episodeGobName);
+    sithConsole_PrintString(std_g_genBuffer);
+
+    if ( sithWorld_g_pCurrentWorld )
+    {
+        char key[64];
+        const char16_t* levelTitle;
+        stdFnames_CopyShortName(key, sizeof(key), sithWorld_g_pCurrentWorld->map_jkl_fname);
+        jkGuiTitle_sub_4189A0(key);
+        levelTitle = stdStrTable_GetValue(&jkStrings_tableExtOver, key);
+        if ( !levelTitle )
+            levelTitle = stdStrTable_GetValue(&jkCog_strings, key);
+        if ( levelTitle )
+        {
+            stdString_WcharToChar(title, levelTitle, sizeof(title) - 1);
+            title[sizeof(title) - 1] = 0;
+            stdString_snprintf(std_g_genBuffer, 512, "Level: %s (%s)", title, sithWorld_g_pCurrentWorld->map_jkl_fname);
+        }
+        else
+            stdString_snprintf(std_g_genBuffer, 512, "Level: %s", sithWorld_g_pCurrentWorld->map_jkl_fname);
+        sithConsole_PrintString(std_g_genBuffer);
+    }
+
+    // Players in the game (the web lobby's transport always reports all 32 slots).
+    int numPlayers = 0;
+    for (int i = 0; i < jkPlayer_maxPlayers; i++)
+    {
+        if ( jkPlayer_playerInfos[i].flags & 1 )
+            numPlayers++;
+    }
+    stdString_snprintf(std_g_genBuffer, 512, "You are the %s, %d player%s, tick rate %d msec",
+                       sithNet_isServer ? "host" : "joiner", numPlayers, numPlayers == 1 ? "" : "s", sithNet_tickrate);
+    sithConsole_PrintString(std_g_genBuffer);
+    return 1;
+}
+
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+// Added: "characters", "character <name>" and "connect <host[:port]> [password]":
+// join a server from the console, with a multiplayer character picked here
+// instead of on the character screen. The pick is saved ("mpCharacter").
+
+#define SITHCOMMAND_MAX_CHARS 32
+
+typedef struct sithCommandChar
+{
+    char name[32];       // the .mpc file name without ".mpc", as the character screen lists it
+    char model[32];      // e.g. "ky.3do"
+    int  rank;           // force level
+    int  bReadable;
+} sithCommandChar;
+
+// The current player's multiplayer characters, as the character screen finds them.
+// On the player screen (no player picked yet) the last one picked. -1 (and says
+// so) without any.
+static int sithCommand_ListChars(sithCommandChar* pOut, int max)
+{
+    char player[32], path[128], fpath[192];
+    stdFileSearch* pSearch;
+    stdFileSearchResult result;
+    int n = 0;
+
+    if ( !jkGuiPlayer_UseLastProfile() )
+    {
+        sithConsole_PrintString("No player profile yet: make one on the player screen.");
+        return -1;
+    }
+
+    stdString_WcharToChar(player, jkPlayer_playerShortName, 31);
+    player[31] = 0;
+    stdString_snprintf(path, sizeof(path), "player\\%s", player);
+    pSearch = stdFileUtil_NewFind(path, 3, "mpc");
+    if ( !pSearch )
+        return 0;
+    while ( n < max && stdFileUtil_FindNext(pSearch, &result) )
+    {
+        stdString_snprintf(fpath, sizeof(fpath), "%s\\%s", path, result.fpath);
+        if ( !util_FileExistsLowLevel(fpath) )
+            continue;
+        sithCommandChar* c = &pOut[n++];
+        stdString_SafeStrCopy(c->name, result.fpath, sizeof(c->name));
+        stdFnames_StripExtAndDot(c->name);
+        c->bReadable = jkPlayer_MPCPeek(player, c->name, c->model, sizeof(c->model), &c->rank);
+    }
+    stdFileUtil_DisposeFind(pSearch);
+    return n;
+}
+
+// The model as the character screen names it ("Kyle Katarn", "Stormtrooper", ...).
+static void sithCommand_ModelName(const char* pModel, char* pOut, int outLen)
+{
+    char key[32];
+    const char16_t* pName;
+    stdFnames_CopyShortName(key, 16, (char*)pModel);
+    jkGuiTitle_sub_4189A0(key);
+    pName = jkStrings_GetUniStringWithFallback(key);
+    if ( pName && pName[0] )
+    {
+        stdString_WcharToChar(pOut, pName, outLen - 1);
+        pOut[outLen - 1] = 0;
+    }
+    else
+        stdString_SafeStrCopy(pOut, pModel, outLen);
+}
+
+// A name or list number as typed: surrounding spaces and quotes go.
+static void sithCommand_TrimArg(const char* pIn, char* pOut, int outLen)
+{
+    int len;
+    while ( pIn && (*pIn == ' ' || *pIn == '\t') ) pIn++;
+    stdString_SafeStrCopy(pOut, pIn ? pIn : "", outLen);
+    len = (int)strlen(pOut);
+    while ( len && (pOut[len - 1] == ' ' || pOut[len - 1] == '\t') ) pOut[--len] = 0;
+    if ( len >= 2 && pOut[0] == '"' && pOut[len - 1] == '"' )
+    {
+        memmove(pOut, pOut + 1, len - 2);
+        pOut[len - 2] = 0;
+    }
+}
+
+// The saved pick, if it's still one of this player's readable characters. -1 if not.
+static int sithCommand_SelectedChar(const sithCommandChar* pChars, int n)
+{
+    char saved[32] = { 0 };
+    wuRegistry_GetStr("mpCharacter", saved, sizeof(saved), "");
+    for ( int i = 0; saved[0] && i < n; i++ )
+        if ( pChars[i].bReadable && !__strcmpi(pChars[i].name, saved) )
+            return i;
+    return -1;
+}
+
+int sithCommand_CmdCharacters(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
+    int n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
+    int sel = sithCommand_SelectedChar(chars, n);
+    char model[64];
+
+    if ( n < 0 )
+        return 1;
+    if ( !n )
+    {
+        sithConsole_PrintString("No multiplayer characters yet: make one on the character screen (Multiplayer, Join or Host).");
+        return 1;
+    }
+    for ( int i = 0; i < n; i++ )
+    {
+        if ( chars[i].bReadable )
+        {
+            sithCommand_ModelName(chars[i].model, model, sizeof(model));
+            stdString_snprintf(std_g_genBuffer, 512, "%2d  %-20s %-16s force level %d%s", i + 1, chars[i].name, model,
+                               chars[i].rank, i == sel ? "  (selected)" : "");
+        }
+        else
+            stdString_snprintf(std_g_genBuffer, 512, "%2d  %-20s (can't be read)", i + 1, chars[i].name);
+        sithConsole_PrintString(std_g_genBuffer);
+    }
+    sithConsole_PrintString("Pick one with: character <name or number>");
+    return 1;
+}
+
+int sithCommand_CmdCharacter(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
+    int n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
+    char arg[64], model[64];
+    int idx = -1, maxRank;
+
+    if ( n < 0 )
+        return 1;
+    sithCommand_TrimArg(pArgStr, arg, sizeof(arg));
+    if ( !arg[0] )
+    {
+        int sel = sithCommand_SelectedChar(chars, n);
+        if ( sel < 0 )
+            sithConsole_PrintString("No character picked. \"characters\" lists them; pick one with: character <name or number>");
+        else
+        {
+            stdString_snprintf(std_g_genBuffer, 512, "Character: %s", chars[sel].name);
+            sithConsole_PrintString(std_g_genBuffer);
+        }
+        return 1;
+    }
+    // The name (any case, spaces and all), else the number "characters" shows.
+    for ( int i = 0; i < n && idx < 0; i++ )
+        if ( !__strcmpi(chars[i].name, arg) ) idx = i;
+    if ( idx < 0 && arg[0] >= '0' && arg[0] <= '9' && atoi(arg) >= 1 && atoi(arg) <= n && strspn(arg, "0123456789") == strlen(arg) )
+        idx = atoi(arg) - 1;
+    if ( idx < 0 )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "No character \"%s\". \"characters\" lists them.", arg);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    if ( !chars[idx].bReadable )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "%s can't be read.", chars[idx].name);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    // Not above the force level of the game we're in (connect checks the server's).
+    maxRank = stdComm_DPlay_GameMaxRank();
+    if ( maxRank >= 0 && chars[idx].rank > maxRank )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "%s is force level %d; this game allows up to %d.", chars[idx].name, chars[idx].rank, maxRank);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    wuRegistry_SaveStr("mpCharacter", chars[idx].name);
+    sithCommand_ModelName(chars[idx].model, model, sizeof(model));
+    stdString_snprintf(std_g_genBuffer, 512, "Character: %s (%s, force level %d)%s", chars[idx].name, model, chars[idx].rank,
+                       sithNet_isMulti ? ", from your next join" : "");
+    sithConsole_PrintString(std_g_genBuffer);
+    return 1;
+}
+
+#define SITHCOMMAND_MAX_PLAYERS 64
+
+// The player profiles, as the player screen finds them (player\<name>\<name>.plr).
+static int sithCommand_ListPlayers(char (*pOut)[32], int max)
+{
+    char fpath[192];
+    stdFileSearch* pSearch = stdFileUtil_NewFind("player", 2, 0);
+    stdFileSearchResult result;
+    int n = 0;
+    if ( !pSearch )
+        return 0;
+    while ( n < max && stdFileUtil_FindNext(pSearch, &result) )
+    {
+        if ( !result.is_subdirectory || result.fpath[0] == '.' )
+            continue;
+        stdString_snprintf(fpath, sizeof(fpath), "player%c%s%c%s.plr", LEC_PATH_SEPARATOR_CHR, result.fpath, LEC_PATH_SEPARATOR_CHR, result.fpath);
+        if ( !util_FileExistsLowLevel(fpath) )
+            continue;
+        stdString_SafeStrCopy(pOut[n++], result.fpath, 32);
+    }
+    stdFileUtil_DisposeFind(pSearch);
+    return n;
+}
+
+// The profile in use, else (on the player screen) the last one picked.
+static void sithCommand_CurrentPlayer(char* pOut, int outLen)
+{
+    stdString_WcharToChar(pOut, jkPlayer_playerShortName, outLen - 1);
+    pOut[outLen - 1] = 0;
+    if ( !pOut[0] )
+        wuRegistry_GetStr("playerShortName", pOut, outLen, "");
+}
+
+int sithCommand_CmdProfiles(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    char players[SITHCOMMAND_MAX_PLAYERS][32], cur[32];
+    int n = sithCommand_ListPlayers(players, SITHCOMMAND_MAX_PLAYERS);
+
+    if ( !n )
+    {
+        sithConsole_PrintString("No player profiles yet: make one on the player screen.");
+        return 1;
+    }
+    sithCommand_CurrentPlayer(cur, sizeof(cur));
+    for ( int i = 0; i < n; i++ )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "%2d  %s%s", i + 1, players[i], !__strcmpi(players[i], cur) ? "  (selected)" : "");
+        sithConsole_PrintString(std_g_genBuffer);
+    }
+    sithConsole_PrintString("Pick one with: profile <name or number>");
+    return 1;
+}
+
+// profile <name|number>: switches player profiles (on the player screen: picks it and goes on).
+int sithCommand_CmdProfile(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    char players[SITHCOMMAND_MAX_PLAYERS][32], arg[64], cur[32];
+    char16_t wName[32];
+    int n, idx = -1;
+
+    sithCommand_TrimArg(pArgStr, arg, sizeof(arg));
+    if ( !arg[0] )
+    {
+        sithCommand_CurrentPlayer(cur, sizeof(cur));
+        stdString_snprintf(std_g_genBuffer, 512, cur[0] ? "Player profile: %s" : "No player profile picked. \"profiles\" lists them.", cur);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    if ( Main_bDedicatedServer )
+    {
+        sithConsole_PrintString("A dedicated server has no player profile.");
+        return 1;
+    }
+    if ( !jkGuiMain_CanSwitchPlayer() )
+    {
+        sithConsole_PrintString("profile works on the main menu, the player screen or the Multiplayer menu (not in a game).");
+        return 1;
+    }
+    n = sithCommand_ListPlayers(players, SITHCOMMAND_MAX_PLAYERS);
+    for ( int i = 0; i < n && idx < 0; i++ )
+        if ( !__strcmpi(players[i], arg) ) idx = i;
+    if ( idx < 0 && atoi(arg) >= 1 && atoi(arg) <= n && strspn(arg, "0123456789") == strlen(arg) )
+        idx = atoi(arg) - 1;
+    if ( idx < 0 )
+    {
+        stdString_snprintf(std_g_genBuffer, 512, "No player profile \"%s\". \"profiles\" lists them.", arg);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    stdString_CharToWchar(wName, players[idx], 31);
+    wName[31] = 0;
+    if ( !jkPlayer_ReadConf(wName) )
+    {
+        jkPlayer_playerShortName[0] = 0;
+        stdString_snprintf(std_g_genBuffer, 512, "%s can't be read.", players[idx]);
+        sithConsole_PrintString(std_g_genBuffer);
+        return 1;
+    }
+    wuRegistry_SaveStr("playerShortName", players[idx]);
+    jkGuiPlayer_ConnectNow(1); // on the player screen: done with it
+    stdString_snprintf(std_g_genBuffer, 512, "Player profile: %s", players[idx]);
+    sithConsole_PrintString(std_g_genBuffer);
+    return 1;
+}
+
+// Leaves the multiplayer game for the main menu, as Esc -> Abort does (which
+// disconnects: sithMulti_Shutdown closes the connection).
+int sithCommand_CmdDisconnect(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    if ( !sithNet_isMulti )
+    {
+        sithConsole_PrintString("Not in a multiplayer game.");
+        return 1;
+    }
+    if ( Main_bDedicatedServer )
+    {
+        sithConsole_PrintString("A dedicated server keeps its game; \"quit\" stops it.");
+        return 1;
+    }
+    sithConsole_PrintString(sithNet_isServer ? "Leaving; you're the host, so the game ends for everyone." : "Disconnecting.");
+    jkQuakeConsole_Close();
+    jkMain_MenuReturn();
+    return 1;
+}
+
+// The character "connect"/"reconnect" join with: the one picked with "character" (or
+// last joined with), else the only one there is. -1 (and says why) if none.
+static int sithCommand_JoinChar(const sithCommandChar* pChars, int n)
+{
+    int sel = sithCommand_SelectedChar(pChars, n), readable = 0;
+    if ( sel >= 0 )
+        return sel;
+    for ( int i = 0; i < n; i++ )
+        if ( pChars[i].bReadable ) { readable++; sel = i; }
+    if ( readable == 1 )
+        return sel;
+    sithConsole_PrintString(readable ? "Pick a character first: character <name or number> (\"characters\" lists them)."
+                                     : "No multiplayer characters yet: make one on the character screen (Multiplayer, Join or Host).");
+    return -1;
+}
+
+int sithCommand_CmdReconnect(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
+    char msg[256];
+    int n, sel;
+
+    if ( Main_bDedicatedServer )
+    {
+        sithConsole_PrintString("A dedicated server can't join games.");
+        return 1;
+    }
+    if ( !jkGuiMain_ConnectNow(0) )
+    {
+        sithConsole_PrintString("reconnect works in a game, on the main menu, the player screen or the Multiplayer menu.");
+        return 1;
+    }
+    n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
+    if ( n < 0 )
+        return 1;
+    sel = sithCommand_JoinChar(chars, n);
+    if ( sel < 0 )
+        return 1;
+    if ( !stdComm_DPlay_Reconnect(chars[sel].name, chars[sel].rank, 0, msg, sizeof(msg)) )
+    {
+        sithConsole_PrintString(msg);
+        return 1;
+    }
+    sithConsole_PrintString(msg);
+    jkQuakeConsole_Close();
+    jkGuiMain_ConnectNow(1);
+    return 1;
+}
+
+// The server asked everyone to join again (its admin's reconnectall, e.g. after
+// lowering the force rank): back on the main menu, join the same game with the
+// character last joined with, or on the character screen if it's above the limit now.
+void sithCommand_RejoinAsked(void)
+{
+    sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
+    char msg[256];
+    int n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
+    int sel = n > 0 ? sithCommand_SelectedChar(chars, n) : -1;
+    if ( !stdComm_DPlay_Reconnect(sel >= 0 ? chars[sel].name : "", sel >= 0 ? chars[sel].rank : 0, 1, msg, sizeof(msg)) )
+        stdLog_Printf("net", "reconnect: %s", msg);
+    sithConsole_PrintString(msg);
+}
+
+int sithCommand_CmdConnect(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
+    char args[300], msg[256];
+    char* pAddress;
+    char* pPassword;
+    int n, sel;
+
+    sithCommand_TrimArg(pArgStr, args, sizeof(args));
+    pAddress = _strtok(args, " \t");
+    pPassword = pAddress ? _strtok(NULL, " \t") : NULL;
+    if ( !pAddress )
+    {
+        sithConsole_PrintString("connect <address>[:port] [password]   (port 27960 if none given)");
+        return 1;
+    }
+    if ( Main_bDedicatedServer )
+    {
+        sithConsole_PrintString("A dedicated server can't join games.");
+        return 1;
+    }
+    if ( !jkGuiMain_ConnectNow(0) )
+    {
+        sithConsole_PrintString("connect works in a game, on the main menu, the player screen or the Multiplayer menu.");
+        return 1;
+    }
+
+    n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
+    if ( n < 0 )
+        return 1;
+    sel = sithCommand_JoinChar(chars, n);
+    if ( sel < 0 )
+        return 1;
+
+    if ( !stdComm_DPlay_Connect(pAddress, pPassword, chars[sel].name, chars[sel].rank, msg, sizeof(msg)) )
+    {
+        sithConsole_PrintString(msg);
+        return 1;
+    }
+    sithConsole_PrintString(msg);
+    jkQuakeConsole_Close();
+    jkGuiMain_ConnectNow(1);
     return 1;
 }
 #endif
@@ -50,7 +563,11 @@ void sithCommand_Startup()
     sithConsole_RegisterCommand(sithCommand_Coords, "coords", 0);
     sithConsole_RegisterCommand(sithCommand_DebugMode, "trackshots", 3);
     sithConsole_RegisterCommand(sithCommand_PingPlayer, "ping", 0);
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    // Added: kick is jkServer.c's (by slot too, and it sticks)
+#else
     sithConsole_RegisterCommand(sithCommand_Kick, "kick", 0);
+#endif
     sithConsole_RegisterCommand(sithCommand_Kick, "boot", 0); // MOTS added
     sithConsole_RegisterCommand(sithCommand_Tick, "tick", 0);
     sithConsole_RegisterCommand(sithCommand_Session, "session", 0);
@@ -90,6 +607,17 @@ void sithCommand_Startup()
     sithConsole_RegisterCommand(sithCommand_CmdThingNpc, "thing", 0);
     sithConsole_RegisterCommand(sithCommand_CmdBind, "bind", 0);
     sithConsole_RegisterCommand(sithCommand_CmdUnbind, "unbind", 0);
+    sithConsole_RegisterCommand(sithCommand_CmdGameInfo, "gameinfo", 0); // Added
+#ifdef PLATFORM_DPLAY
+    sithConsole_RegisterCommand(sithCommand_CmdCharacters, "characters", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdCharacter, "character", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdProfiles, "profiles", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdProfile, "profile", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdConnect, "connect", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdDisconnect, "disconnect", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdReconnect, "reconnect", 0); // Added
+    jkServer_RegisterCommands(); // Added: status, kick, ban, map, rcon... (Main/jkServer.c)
+#endif
 
     sithCommand_StartupBinds();
 #endif
@@ -187,7 +715,7 @@ int sithCommand_Tick(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         return 0;
     if ( pArgStr && (newTickrate = _atoi(pArgStr)) != 0 )
     {
-        if ( newTickrate >= 100 && newTickrate <= 300)
+        if ( newTickrate >= TICKRATE_MIN && newTickrate <= TICKRATE_MAX) // Altered: same range as the host screen (was 100-300)
         {
             sithNet_tickrate = newTickrate;
             sithEvent_RegisterTask(2, sithMulti_CheckPlayers, newTickrate, 1);
@@ -195,7 +723,8 @@ int sithCommand_Tick(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         }
         else
         {
-            sithConsole_PrintString("New tick is out of range");
+            _sprintf(std_g_genBuffer, "New tick is out of range (%d-%d msec)", TICKRATE_MIN, TICKRATE_MAX); // Added: say the range
+            sithConsole_PrintString(std_g_genBuffer);
             result = 0;
         }
     }
@@ -226,7 +755,14 @@ int sithCommand_Session(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         do
         {
             v5 = sithMulti_GetPlayerIndexByID(v4->field_80);
-            _sprintf(std_g_genBuffer, "Player %x (%S) is in the session", v4->field_80, jkPlayer_playerInfos[v5].player_name);
+            // Altered: char16_t name printed with %s (%S is wchar_t off Windows); unknown id no longer reads jkPlayer_playerInfos[-1]
+            char name[32] = "?";
+            if ( (int)v5 >= 0 )
+            {
+                stdString_WcharToChar(name, jkPlayer_playerInfos[v5].player_name, 31);
+                name[31] = 0;
+            }
+            stdString_snprintf(std_g_genBuffer, 512, "Player %x (%s) is in the session", v4->field_80, name);
             sithConsole_PrintString(std_g_genBuffer);
             ++v3;
             ++v4;
@@ -678,8 +1214,9 @@ int sithCommand_PingPlayer(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         v2 = sithPlayer_GetPlayerNumByName(v4);
         if ( v2 < 0 )
         {
-            _sprintf(std_g_genBuffer, "Player %s not found", (const char *)v4);
+            stdString_snprintf(std_g_genBuffer, 512, "Player %s not found", pArgStr); // Altered: printed the char16_t name as char
             sithConsole_PrintString(std_g_genBuffer);
+            return 1; // Altered: went on to ping jkPlayer_playerInfos[-1]
         }
     }
     sithMulti_Ping(jkPlayer_playerInfos[v2].playerNetId);
@@ -704,7 +1241,7 @@ int sithCommand_Kick(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         {
             if ( (v3->flags & 1) != 0 && !__wcsicmp(v3->player_name, a1) )
             {
-                _sprintf(std_g_genBuffer, "Kicked %S", v3->player_name);
+                stdString_snprintf(std_g_genBuffer, 512, "Kicked %s", pArgStr); // Altered: %S is wchar_t off Windows
                 sithConsole_PrintString(std_g_genBuffer);
                 sithMulti_QuitPlayer(v3->playerNetId);
             }

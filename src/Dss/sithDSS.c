@@ -15,6 +15,8 @@
 #include "Gameplay/sithEvent.h"
 #include "Devices/sithComm.h"
 #include "World/jkPlayer.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "Win95/stdComm.h" // Added: stdComm_DPlay_ServerKind
 
 #include "jk.h"
 
@@ -96,6 +98,17 @@ const char* sithDSS_IdToStr(int id)
     return strs[id];
 }
 
+// Added: material names go out only to OpenJKDF2 builds (our relay, the web lobby).
+// DirectPlay games can have JK.EXE players, whose messages stay as the original's.
+static int sithDSS_SendMaterialNames()
+{
+#ifdef PLATFORM_DPLAY
+    return stdComm_DPlay_ServerKind() != 0;
+#else
+    return 1;
+#endif
+}
+
 void sithDSS_SurfaceStatus(SithSurface *pSurf, int idTo, int outstream)
 {
     NETMSG_START;
@@ -119,7 +132,12 @@ void sithDSS_SurfaceStatus(SithSurface *pSurf, int idTo, int outstream)
     {
         NETMSG_PUSHU32(pSurf->pAdjoin->flags);
     }
-    
+    // Added: the material's name as well, after what the original sends. Its
+    // index is the order this PC loaded it in, which a graphics pack only one
+    // player runs changes (packaging/wasm/index.html, OPTIONAL_PACKS).
+    if (sithDSS_SendMaterialNames())
+        NETMSG_PUSHSTR(pSurf->surfaceInfo.face.material ? pSurf->surfaceInfo.face.material->mat_fpath : "", 0x20);
+
     NETMSG_END(DSS_SURFACESTATUS);
     
     sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, idTo, outstream, 1);
@@ -140,13 +158,21 @@ int sithDSS_ProcessSurfaceStatus(SithMessage *pMsg)
     surface = &sithWorld_g_pCurrentWorld->surfaces[v1];
 
     surface->flags = NETMSG_POPU32();
-    surface->surfaceInfo.face.material = sithMaterial_GetMaterialByIndex(NETMSG_POPS32());
+
+    // Altered: an index this PC doesn't have (the sender lacks a material we have, so dflt.mat
+    // stood in and shifted its later indices, or a sender without the name below) left the
+    // surface with no material, and it wasn't drawn (switches went see-through). Keep ours then.
+    rdMaterial* pOldMat = surface->surfaceInfo.face.material;
+    int32_t matId = NETMSG_POPS32();
+    int bUnknownId = 0;
+    surface->surfaceInfo.face.material = sithMaterial_GetMaterialByIndex(matId);
+    if (!surface->surfaceInfo.face.material && matId != -1)
+    {
+        surface->surfaceInfo.face.material = pOldMat;
+        bUnknownId = 1;
+    }
 
     v4 = NETMSG_POPS16();
-    if ( v4 == -1 || !surface->surfaceInfo.face.material || v4 >= surface->surfaceInfo.face.material->num_texinfo )
-        surface->surfaceInfo.face.wallCel = -1;
-    else
-        surface->surfaceInfo.face.wallCel = v4;
 
     surface->surfaceInfo.face.texVertOffset = NETMSG_POPVEC2();
     surface->surfaceInfo.face.extraLight = NETMSG_POPF32();
@@ -157,6 +183,45 @@ int sithDSS_ProcessSurfaceStatus(SithMessage *pMsg)
 
     if ( surface->pAdjoin )
         surface->pAdjoin->flags = NETMSG_POPU32();
+
+    // Added: the material by name when the sender gave it, since its index
+    // can differ between two PCs (sithDSS_SurfaceStatus).
+    char matName[0x20] = "";
+    if ( NETMSG_IN_LEFT(pMsg) >= 0x20 )
+    {
+        NETMSG_POPSTR(matName, 0x20);
+        rdMaterial* pByName = sithMaterial_FindByName(matName);
+        if ( pByName )
+            surface->surfaceInfo.face.material = pByName;
+    }
+
+    // Moved after the name: the cel is checked against the material used.
+    if ( v4 == -1 || !surface->surfaceInfo.face.material || v4 >= surface->surfaceInfo.face.material->num_texinfo )
+        surface->surfaceInfo.face.wallCel = -1;
+    else
+        surface->surfaceInfo.face.wallCel = v4;
+
+    // Added: with -verboseNetworking, log surface changes from other players
+    if (Main_bVerboseNetworking)
+    {
+        rdMaterial* pMat = surface->surfaceInfo.face.material;
+        // where the material it ended up with lives: this level's list, static.jkl's, or neither (stale)
+        const char* pWhere = "none";
+        if (pMat)
+        {
+            SithWorld* w = sithWorld_g_pCurrentWorld;
+            SithWorld* st = sithWorld_g_pStaticWorld;
+            if (w && w->aMaterials && pMat >= w->aMaterials && pMat < w->aMaterials + w->numMaterials) pWhere = "level";
+            else if (st && st->aMaterials && pMat >= st->aMaterials && pMat < st->aMaterials + st->numMaterials) pWhere = "static";
+            else pWhere = "NEITHER (stale?)";
+        }
+        stdPlatform_Printf("sithDSS: surface %u from %u: mat id %d name \"%s\" -> %s [%s] (was %s)%s, cel %d (sent %d of %d), geo %d, type %x, flags %x\n",
+                           v1, (unsigned)pMsg->netMsg.idx, matId, matName,
+                           pMat ? pMat->mat_fpath : "none", pWhere, pOldMat ? pOldMat->mat_fpath : "none",
+                           bUnknownId ? ", unknown id" : "",
+                           surface->surfaceInfo.face.wallCel, (int)v4, pMat ? (int)pMat->num_texinfo : 0, surface->surfaceInfo.face.geometryMode,
+                           surface->surfaceInfo.face.type, surface->flags);
+    }
 
     return 1;
 }
@@ -545,7 +610,11 @@ void sithDSS_AnimStatus(rdSurface *pAnim, int idTo, int outstream)
         NETMSG_PUSHS32(pAnim->material->id);
     if (pAnim->flags & 0x2000000)
         NETMSG_PUSHS32(pAnim->sector->id);
-    
+    // Added: the animated material's name as well, after what the original
+    // sends, as in sithDSS_SurfaceStatus.
+    if ((pAnim->flags & 0x10000) && sithDSS_SendMaterialNames())
+        NETMSG_PUSHSTR(pAnim->material ? pAnim->material->mat_fpath : "", 0x20);
+
     NETMSG_END(DSS_SURFACE);
     
     sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, idTo, outstream, 1);
@@ -624,6 +693,16 @@ int sithDSS_ProcessAnimStatus(SithMessage *pMsg)
 
     if (rdsurface->flags & 0x2000000)
         rdsurface->sector = sithSector_GetPtrFromIdx(NETMSG_POPS32());
+
+    // Added: the material by name when the sender gave it (sithDSS_AnimStatus).
+    if ((rdsurface->flags & 0x10000) && NETMSG_IN_LEFT(pMsg) >= 0x20)
+    {
+        char matName[0x20];
+        NETMSG_POPSTR(matName, 0x20);
+        rdMaterial* pByName = sithMaterial_FindByName(matName);
+        if (pByName)
+            rdsurface->material = pByName;
+    }
 
     return 1;
 }

@@ -9,7 +9,7 @@ Building is currently tested primarily on Arch Linux, Ubuntu 20.04, and MacOS Mo
 
 ```
 # All
-pacman -S git cmake base-devel make python python-pip bison imagemagick gtk3 openssl protobuf zsh libpng curl
+pacman -S git cmake base-devel make python python-pip bison imagemagick gtk3 openssl zsh libpng curl
 pip3 install cogapp
 
 # Win32/MinGW
@@ -35,7 +35,7 @@ sudo apt-get update
 sudo apt-get upgrade
 
 # All
-sudo apt install git build-essential cmake make python3 python3-pip bison imagemagick libgtk-3-dev protobuf-compiler zsh libpng-dev libcurl-dev
+sudo apt install git build-essential cmake make python3 python3-pip bison imagemagick libgtk-3-dev zsh libpng-dev libcurl-dev
 pip3 install cogapp
 
 # On some Ubuntu versions (22.04?)
@@ -48,7 +48,7 @@ sudo apt install mingw-w64
 # TODO find equivalents: multilib-devel lib32-sdl2 lib32-glew lib32-openal
 
 # Linux 64-bit
-sudo apt install clang libsdl2-dev libsdl2-mixer-dev libopenal-dev libglew-dev libssl-dev libprotobuf-dev
+sudo apt install clang libsdl2-dev libsdl2-mixer-dev libopenal-dev libglew-dev libssl-dev
 
 # WebAssembly
 # TODO find equivalents: emscripten
@@ -82,7 +82,7 @@ pip3 install cogapp generate-iconset
 brew install mingw-w64
 
 # MacOS 64-bit
-brew install openal-soft sdl2 sdl2_mixer glew openssl@1.1 protobuf libpng libmodplug
+brew install openal-soft sdl2 sdl2_mixer glew openssl@1.1 libpng libmodplug
 
 # WebAssembly
 brew install emscripten

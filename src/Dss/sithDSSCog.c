@@ -6,6 +6,9 @@
 #include "World/sithThing.h"
 #include "Devices/sithComm.h"
 #include "Main/Main.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 int sithDSSCog_SendMessage(sithCog *a1, int a2, int a3, int a4, int a5, int a6, int a7, flex32_t param0, flex32_t param1, flex32_t param2, flex32_t param3, int a11)
 {
@@ -43,7 +46,20 @@ int sithDSSCog_SendMessage(sithCog *a1, int a2, int a3, int a4, int a5, int a6, 
     NETMSG_PUSHF32(param3);
 
     //printf("%x %x %x %x %x %x %x, %f %f %f %f\n", a7, a1->idx, a3, a5, a, b, a2, param0, param1, param2, param3);
-    
+
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: a targeted Force power (SkillTarget) on a player this
+    // game draws from their timed updates goes with the moment it drew them at, and
+    // where, which their game checks (stdComm_WSRelay_ForceTakes). Only then.
+    if ( (a2 & 0xFF) == SITH_MESSAGE_SKILL && a3 == SENDERTYPE_THING && a5 == SENDERTYPE_THING )
+    {
+        uint8_t aForce[STDCOMM_WSRELAY_FORCE_BYTES];
+        int forceLen = stdComm_WSRelay_ForceMoment(sithThing_GetThingByIndex(a4), aForce);
+        for (int i = 0; i < forceLen; i++)
+            NETMSG_PUSHU8(aForce[i]);
+    }
+#endif
+
     NETMSG_END(DSS_SENDTRIGGER);
 
     if ( a2 == SITH_MESSAGE_TOUCHED )
@@ -94,6 +110,11 @@ int sithDSSCog_ProcessMessage(SithMessage *in_netMsg)
     param2 = NETMSG_POPF32();
     param3 = NETMSG_POPF32();
     //printf("%x %x %x %x %x %x %x, %f %f %f %f\n", linkId, cog->idx, senderType, sourceType, senderIdx, sourceIndex, msgid, param0, param1, param2, param3);
+    // Added: with -verboseNetworking, log script messages from other players
+    if (Main_bVerboseNetworking)
+        stdPlatform_Printf("sithDSSCog: message %d (to one cog: %d) from %u: sender %d/%d source %d/%d params %g %g %g %g\n",
+                           msgid, cog ? 1 : 0, (unsigned)in_netMsg->netMsg.idx, senderType, senderIdx,
+                           sourceType, sourceIndex, (double)param0, (double)param1, (double)param2, (double)param3);
     if ( !cog )
     {
         sithCog_BroadcastMessageEx(msgid, senderType, senderIdx, sourceType, sourceIndex, param0, param1, param2, param3);
@@ -105,7 +126,24 @@ int sithDSSCog_ProcessMessage(SithMessage *in_netMsg)
         if ( !v12 || (v12->flags & SITH_TF_CAPTURED) == 0 )
             return 1;
     }
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: a targeted Force power on this game's player that came
+    // with the moment the attacker's game drew them at, and where, plays only if they
+    // were there then.
+    if ( msgid == SITH_MESSAGE_SKILL && senderType == SENDERTYPE_THING && sourceType == SENDERTYPE_THING
+         && NETMSG_IN_LEFT(in_netMsg) >= STDCOMM_WSRELAY_FORCE_BYTES )
+    {
+        uint8_t aForce[STDCOMM_WSRELAY_FORCE_BYTES];
+        for (int i = 0; i < STDCOMM_WSRELAY_FORCE_BYTES; i++)
+            aForce[i] = NETMSG_POPU8();
+        if ( !stdComm_WSRelay_ForceTakes(v12, sithThing_GetThingByIndex(sourceIndex), aForce) )
+            return 1;
+    }
+#endif
     sithCog_SendMessageEx(cog, msgid, senderType, senderIdx, sourceType, sourceIndex, linkId, param0, param1, param2, param3);
+#ifdef PLATFORM_DPLAY
+    stdComm_WSRelay_ForceDone();
+#endif
     return 1;
 }
 

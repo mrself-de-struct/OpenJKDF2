@@ -23,11 +23,13 @@
 #include "Win95/Windows.h"
 #include "Main/Main.h"
 #include "Main/jkMain.h"
+#include "Main/jkSmack.h" // Added
 #include "Main/jkRes.h"
 #include "General/stdString.h"
 #include "General/util.h"
 #include "General/stdFnames.h"
 #include "Main/sithCvar.h"
+#include "Main/sithCommand.h" // Added: sithCommand_RejoinAsked
 #include "stdPlatform.h"
 
 // Added
@@ -35,6 +37,21 @@ extern int jkCredits_cdOverride;
 static char16_t jkGuiMain_versionBuffer[64];
 
 static int jkGuiMain_bIdk = 1;
+
+// The player screen the game starts with. Added: not when the engine has just restarted
+// to join a game (into the host's mod): that goes on with the profile it had.
+static void jkGuiMain_PickPlayer(void)
+{
+#if defined(PLATFORM_DPLAY) && !defined(TARGET_NO_MULTIPLAYER_MENUS)
+    if ( stdComm_DPlay_AutoJoinPending() )
+    {
+        jkPlayer_playerShortName[0] = 0;
+        if ( jkGuiPlayer_UseLastProfile() )
+            return;
+    }
+#endif
+    jkGuiPlayer_ShowNewPlayer(1);
+}
 static int jkGuiCutscenes_initted;
 
 static int32_t jkGuiMain_listboxIdk[2] = {0xd, 0xe};
@@ -75,6 +92,41 @@ static jkGuiElement jkGuiMain_elements[11] = {
 static jkGuiMenu jkGuiMain_menu = {jkGuiMain_elements, -1, 0xFFFF, 0xFFFF, 0xF, 0, 0, jkGui_stdBitmaps, jkGui_stdFonts, 0, 0, "thermloop01.wav", "thrmlpu2.wav", 0, 0, 0, 0, 0, 0};
 
 // MOTS altered
+#if defined(PLATFORM_DPLAY) && !defined(TARGET_NO_MULTIPLAYER_MENUS)
+// Added: console "connect": leave the game, or the main / Multiplayer menu or player screen, for
+// the join (the auto-join, see stdComm_DPlay_AutoJoinPending). 0 if it can't from
+// here (another menu is up). bDo 0 only asks whether it can.
+int jkGuiMain_ConnectNow(int bDo)
+{
+    if ( jkSmack_GetCurrentGuiState() == JK_GAMEMODE_GAMEPLAY && !jkGuiRend_menuNestDepth )
+    {
+        if ( bDo )
+            jkMain_MenuReturn(); // as Esc -> Abort; the main menu then goes on to Multiplayer
+        return 1;
+    }
+    if ( jkSmack_GetCurrentGuiState() != JK_GAMEMODE_MAIN )
+        return 0;
+    if ( jkGuiPlayer_ConnectNow(bDo) ) // the player screen, with the last profile (jkGuiPlayer_UseLastProfile)
+        return 1;
+    if ( jkGuiRend_GetActiveMenu() == &jkGuiMain_menu )
+    {
+        if ( bDo )
+            jkGuiMain_menu.lastClicked = 11;
+        return 1;
+    }
+    return jkGuiMultiplayer_ConnectNow(bDo);
+}
+
+// Added: console "profile": a player profile may change only on the main menu, the
+// player screen or the Multiplayer menu (not in a game, not in deeper menus).
+int jkGuiMain_CanSwitchPlayer(void)
+{
+    if ( jkSmack_GetCurrentGuiState() != JK_GAMEMODE_MAIN )
+        return 0;
+    return jkGuiRend_GetActiveMenu() == &jkGuiMain_menu || jkGuiPlayer_ConnectNow(0) || jkGuiMultiplayer_ConnectNow(0);
+}
+#endif
+
 void jkGuiMain_Show()
 {
     int v1; // esi
@@ -140,7 +192,19 @@ void jkGuiMain_Show()
     stdBitmap_EnsureData(jkGui_stdBitmaps[JKGUI_BM_BK_MAIN]);
 
     jkGui_SetModeMenu(jkGui_stdBitmaps[JKGUI_BM_BK_MAIN]->palette);
-    if ( !jkGuiMain_bIdk || (jkGuiMain_bIdk = 0, jkGuiPlayer_ShowNewPlayer(1), !stdComm_dword_8321F8)
+#if defined(PLATFORM_DPLAY) && !defined(TARGET_NO_MULTIPLAYER_MENUS)
+    // Added: why the last game ended, when the server said (kicked or banned), before
+    // anything else the menus do (they may go straight back to Multiplayer)
+    {
+        char16_t wLeave[128];
+        if ( stdComm_DPlay_TakeLeaveMessage((uint16_t*)wLeave, 128) )
+            jkGuiDialog_ErrorDialog(jkStrings_GetUniStringWithFallback("GUI_MULTIPLAYER"), wLeave);
+        // the server asked everyone to reconnect: the same game again (sets up the auto-join)
+        if ( stdComm_DPlay_TakeRejoinAsked() )
+            sithCommand_RejoinAsked();
+    }
+#endif
+    if ( !jkGuiMain_bIdk || (jkGuiMain_bIdk = 0, jkGuiMain_PickPlayer(), !stdComm_dword_8321F8)
 #ifndef TARGET_NO_MULTIPLAYER_MENUS 
         || jkGuiMultiplayer_Show2() != 1 
 #endif
@@ -158,6 +222,20 @@ void jkGuiMain_Show()
             if (g_should_exit) return; // Added
 
             jkGuiRend_MenuSetEscapeKeyShortcutElement(&jkGuiMain_menu, &jkGuiMain_elements[2]);
+#if defined(PLATFORM_DPLAY) && !defined(TARGET_NO_MULTIPLAYER_MENUS)
+            // Added: why the last game ended, when the server said (kicked or banned)
+            {
+                char16_t wLeave[128];
+                if ( stdComm_DPlay_TakeLeaveMessage((uint16_t*)wLeave, 128) )
+                    jkGuiDialog_ErrorDialog(jkStrings_GetUniStringWithFallback("GUI_MULTIPLAYER"), wLeave);
+                if ( stdComm_DPlay_TakeRejoinAsked() )
+                    sithCommand_RejoinAsked();
+            }
+            // Added: back from restarting into a web lobby host's mod, go on joining its game
+            if ( stdComm_DPlay_AutoJoinPending() )
+                v1 = 11;
+            else
+#endif
             v1 = jkGuiRend_DisplayAndReturnClicked(&jkGuiMain_menu);
             switch ( v1 )
             {

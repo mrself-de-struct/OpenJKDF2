@@ -49,7 +49,7 @@ endif()
     # These mirror the DSi/TWL feature set: no SDL2, no desktop GL, no sockets,
     # software video codecs on, POSIX filesystem (KOS newlib), no blobs.
     set(TARGET_USE_PHYSFS FALSE)
-    set(TARGET_USE_GAMENETWORKINGSOCKETS FALSE)
+    set(TARGET_USE_DPLAY FALSE)
     set(TARGET_USE_LIBSMACKER TRUE)
     set(TARGET_USE_LIBSMUSHER TRUE)
     set(TARGET_USE_SDL2 FALSE)

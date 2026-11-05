@@ -94,6 +94,10 @@
 #define SITH_MAX_SURFACE_CLIP_ITERS (50)
 #endif // QOL_IMPROVEMENTS
 
+// Added: riders a path-moved thing (elevator) carries back when it's blocked
+// (sithCollision_MoveThing)
+#define SITH_MAX_MOVED_RIDERS (16)
+
 // COG resource limits
 #if defined(QOL_IMPROVEMENTS) && !defined(TARGET_RETRO_HOMEBREW)
 #define SITHCOGVM_MAX_STACKSIZE (0x10000)
@@ -136,6 +140,13 @@
 #define STD3D_MAX_UI_VERTICES (0x8000)
 #endif
 
+// Added: the most vertices a face can have while it's clipped: rdClip's work buffers, and
+// what rdCache_GetProcEntry keeps free for each face. JK.EXE's buffers are 32 (symbols.syms).
+#define RDCLIP_MAX_VERTICES (32)
+
+// Added: geosets (levels of detail) in a .3do, rdModel3.aGeos
+#define RDMODEL3_MAX_GEOSETS (4)
+
 #if defined(QOL_IMPROVEMENTS) && !defined(TARGET_RETRO_HOMEBREW)
 #define SITH_MAX_SYNC_THINGS (128)
 #else
@@ -165,6 +176,10 @@
 #define TICKRATE_MIN (100)
 #define TICKRATE_MAX (300)
 #endif
+
+// The most supersampling (Display > SSAA Multiplier) the browser build draws at. Each
+// step multiplies the pixels on both sides, so 2 is already four times the work.
+#define WASM_MAX_SSAA_MULTIPLE (2.0)
 
 // Run game physics at a fixed timestep
 #define FIXED_TIMESTEP_PHYS
@@ -446,6 +461,15 @@
 #define SITHBINDS_FNAME ("openjkdf2_binds.json")
 #define REGISTRY_FNAME ("registry.json")
 #endif
+// Added: a dedicated server's hosting settings (wuRegistry_UseServerFile), "server.json"
+// unless -serverConfig names another file (Main_ParseCmdLine)
+#define SERVER_FNAME_DEFAULT ("server.json")
+#ifdef __cplusplus
+extern "C" char Main_strServerConfig[];
+#else
+extern char Main_strServerConfig[];
+#endif
+#define SERVER_FNAME (Main_strServerConfig)
 
 #define STDUPDATER_DEFAULT_URL ("https://api.github.com/repos/shinyquagsire23/OpenJKDF2/releases?per_page=1")
 #define STDUPDATER_DEFAULT_WIN64_FILENAME ("win64-debug.zip")

@@ -38,6 +38,9 @@
 #include "Dss/sithDSS.h"
 #include "General/stdMath.h"
 #include "jk.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 #define NUM_THING_PARAMS (74) // JK is 72
 #define NUM_THING_TYPES (13)
@@ -270,6 +273,16 @@ void sithThing_Update(flex_t secDeltaTime, int msecDeltaTime)
             }
             if ( sithThing_pfUnknownFunc && pThingIter->jkFlags )
                 sithThing_pfUnknownFunc(pThingIter);
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: another player drawn from their timed updates
+            // moves only as those say (stdComm_WSRelayMotion.c), so nothing here
+            // steers or blocks them.
+            if ( pThingIter->type == SITH_THING_PLAYER && sithNet_isMulti && stdComm_WSRelay_MotionDrawn(pThingIter) )
+            {
+                sithPuppet_UpdatePuppet(pThingIter, secDeltaTime);
+                continue;
+            }
+#endif
             if ( pThingIter->moveType == SITH_MT_PHYSICS )
             {
                 // CPU optimization testing
@@ -469,6 +482,16 @@ flex_t sithThing_DamageThing(SithThing *pThing, SithThing *pDamageThing, flex_t 
 
     if ( damage <= 0.0 )
         return 0.0;
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see (Platform/Networking/Hits). This game claims its own
+    // player's hits on others, and a hit on its player that the attacker's game
+    // claims only shows here.
+    if ( sithNet_isMulti && pThing->type == SITH_THING_PLAYER && pDamageThing )
+    {
+        if ( stdComm_WSRelay_ClaimHit(pThing, pDamageThing, damage, hitType) )
+            return 0.0;
+    }
+#endif
     if ( (pThing->flags & (SITH_TF_DISABLED|SITH_TF_DEAD|SITH_TF_DESTROYED)) != 0 )
         return 0.0;
     if ( (pThing->flags & SITH_TF_CAPTURED) != 0 && (pThing->flags & SITH_TF_INVULN) == 0 )
@@ -1117,6 +1140,12 @@ SithThing* sithThing_CreateThingAtPos(SithThing *pTemplate, const rdVector3 *pos
             {
                 v26->flags |= SITH_TF_INVULN;
             }
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: an explosion a shot's blast makes in
+            // turn is known by the shot too (stdComm_WSRelay_MakingBlast).
+            if ( sithNet_isMulti )
+                stdComm_WSRelay_NoteBlastPart(v26);
+#endif
         }
     }
     return pThingRet;
@@ -1580,14 +1609,20 @@ int sithThing_ReadStaticThingsListText(SithWorld *pWorld, int bSkip)
             if ( v23 >= 0 && v23 < sithWorld_g_pCurrentWorld->numSectors )
             {
                 v24 = &sithWorld_g_pCurrentWorld->aSectors[v23];
+                sithThing_SetThingBasedOn(v21, v22);
+#ifdef JKM_LIGHTING
+                // Altered: set the placed thing's ARCH light index after copying its template.
+                // JKM.EXE sets it first (0x51d4b2), so the template copy (0x51d4ba) put back
+                // the template's -1 and the levels' baked light for doors, lifts and other
+                // 3DO architecture never showed. Fix ported from OpenJKDF2-MotS-Fixes by
+                // Andrei Kiralv/Darkahn and Coda Lilitari.
                 if ( stdConffile_g_entry.numArgs >= 11 && (stdConffile_g_entry.aArgs[10].key == stdConffile_g_entry.aArgs[10].value)) // MOTS added (w/o comparison)
                 {
                     // && (!stdConffile_g_entry.aArgs[10].key || strlen(stdConffile_g_entry.aArgs[10].key) == 0)
                     v23 = _atoi(stdConffile_g_entry.aArgs[10].value);
                     v21->archlightIdx = v23;
-                    //printf("%p %p %x\n", , v21->archlightIdx);
                 }
-                sithThing_SetThingBasedOn(v21, v22);
+#endif
                 sithThing_SetPositionAndOrient(v21, &pos, &a);
                 sithThing_EnterSector(v21, v24, 1, 1);
                 sithThing_Initialize(v21);

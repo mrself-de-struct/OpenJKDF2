@@ -247,3 +247,8 @@ int wuRegistry_GetWString(LPCSTR lpValueName, char16_t* lpData, int outSize, con
     }
     return result;
 }
+
+// Added: the Windows registry backend has no server.json (see Posix/wuRegistry.c).
+void wuRegistry_UseServerFile(void)
+{
+}

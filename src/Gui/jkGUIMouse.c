@@ -595,7 +595,16 @@ int jkGuiMouse_CancelOkClicked(jkGuiElement *pClickedElement, jkGuiMenu *pMenu, 
 
     jkGuiRend_PlayWav(pMenu->soundClick);
     if ( !jkGuiMouse_dword_5566B0 )
+    {
+#ifdef QOL_IMPROVEMENTS
+        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Cancel throws them away. (Esc while editing a control still just
+        // stops editing, below.)
+        if ( jkGuiRend_IsEscapeKeyClick(pClickedElement) )
+            return jkGuiMouse_aElements[21].hoverId;
+#endif
         return pClickedElement->hoverId;
+    }
     if ( pClickedElement->hoverId == 1 )
     {
         if ( jkGuiMouse_aElements[13].bIsVisible )

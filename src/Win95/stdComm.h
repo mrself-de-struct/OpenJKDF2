@@ -4,9 +4,8 @@
 #include "types.h"
 #include "globals.h"
 
-#include "Platform/Networking/Basic/stdComm_basic.h"
-#include "Platform/Networking/GNS/stdComm_GNS.h"
 #include "Platform/Networking/None/stdComm_none.h"
+#include "Platform/Networking/DPlay/stdComm_dplay.h"
 
 #ifdef __cplusplus
 extern "C" {

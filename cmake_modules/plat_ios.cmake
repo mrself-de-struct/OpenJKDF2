@@ -19,14 +19,14 @@ macro(plat_initialize)
 
     include(cmake_modules/plat_feat_full_sdl2.cmake)
 
-    # Same trims as Android: no auto-updater, no GameNetworkingSockets (protobuf
-    # + GNS do not cross-compile cleanly to iOS and multiplayer is not the point
-    # of this target), no PhysFS, and OpenAL is built from source rather than found.
+    # Same trims as Android: no auto-updater, no multiplayer (DirectPlay sockets
+    # are untested on iOS and multiplayer is not the point of this target), no
+    # PhysFS, and OpenAL is built from source rather than found.
     set(TARGET_USE_PHYSFS FALSE)
     set(TARGET_USE_CURL FALSE)
     set(TARGET_BUILD_TESTS FALSE)
     set(TARGET_FIND_OPENAL FALSE)
-    set(TARGET_USE_GAMENETWORKINGSOCKETS FALSE)
+    set(TARGET_USE_DPLAY FALSE)
 
     set(TARGET_IOS TRUE)
 

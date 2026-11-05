@@ -25,6 +25,8 @@
 #include "Gameplay/jkSaber.h"
 #include "World/sithThing.h"
 #include "Gameplay/sithPlayer.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "stdPlatform.h"
 #include "World/sithWeapon.h"
 #include "World/sithWorld.h"
 #include "World/sithSector.h"
@@ -1019,6 +1021,9 @@ void jkPlayer_DrawPov()
 
         rdCamera_SetAmbientLight(&sithCamera_g_pCurCamera->rdCamera, ambLight);
         rdColormap_SetCurrent(sithCamera_g_pCurCamera->sector->colormap);
+#ifdef JKM_LIGHTING
+        rdSetVertexColorMode(0); // MOTS added: JKM.EXE draws the first-person model in mono (0x405c15)
+#endif
 
         rdMatrix_Copy34(&orient, &sithCamera_g_pCurCamera->orient);
         rdVector_Copy3(&trans, &playerThings[playerThingIdx].actorThing->actorParams.eyeOffset);
@@ -1179,6 +1184,34 @@ void jkPlayer_renderSaberWeaponMesh(SithThing *thing)
     {
         if (playerInfo->rd_thing.model3)
             rdThing_Draw(&playerInfo->rd_thing, primaryMat);
+
+        // Added: with -verboseNetworking, say why another player's lit saber has no blade
+        if (Main_bVerboseNetworking && sithNet_isMulti && thing->type == SITH_THING_PLAYER && thing != sithPlayer_g_pLocalPlayerThing
+            && playerInfo >= &playerThings[0] && playerInfo < &playerThings[NUM_JKPLAYER_THINGS])
+        {
+            static int lastReason[NUM_JKPLAYER_THINGS];
+            int slot = playerInfo - playerThings;
+            int reason = 0;
+            if (thing->jkFlags & JKFLAG_SABERON)
+            {
+                if (!playerInfo->polylineThing.polyline)
+                    reason = 1;
+                else if (!playerInfo->polylineThing.polyline->face.material)
+                    reason = 2;
+                else if (playerInfo->polylineThing.polyline->length <= 0.0)
+                    reason = 3;
+                else
+                    reason = 4;
+            }
+            if (reason != lastReason[slot])
+            {
+                static const char* reasons[] = {"saber off", "no blade set up", "blade has no texture", "blade length 0", "blade drawn"};
+                stdPlatform_Printf("jkPlayer: player %d (%08x) saber: %s (jkFlags %x, length %f/%f)\n", slot, thing->guid, reasons[reason],
+                                   thing->jkFlags, playerInfo->polylineThing.polyline ? playerInfo->polylineThing.polyline->length : 0.0,
+                                   playerInfo->length);
+                lastReason[slot] = reason;
+            }
+        }
         
         if (thing->jkFlags & JKFLAG_SABERON)
         {
@@ -1536,6 +1569,53 @@ int jkPlayer_MPCParse(jkPlayerMpcInfo *info, SithPlayer* unk, char16_t *fname, c
 
     jkPlayer_SetAmmoMaximums(jkPlayer_personality); // MOTS added
     jkPlayer_mpcInfoSet = 1;
+    return 1;
+}
+
+// Added: a character's model and force level for the console's "characters" and
+// "connect", without loading it (jkPlayer_MPCParse sets the local player's force
+// powers and model, which mid-game would change the player in the game).
+// pMpcName is the file name without ".mpc". 0 if it can't be read.
+int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModelOut, int modelLen, int* pRankOut)
+{
+    char fpath[128];
+    int bScrambled = 0, bin, key = 0;
+    flex32_t value;
+
+    pModelOut[0] = 0;
+    *pRankOut = 0;
+    stdString_snprintf(fpath, sizeof(fpath), "player\\%s\\%s.mpc", pPlayerName, pMpcName);
+    if (!stdConffile_OpenReadBypass(fpath))
+        return 0;
+    if ( stdConffile_ReadLine() && Main_bMotsCompat && _strncmp(jkPlayer_SkipLinePrefix(stdConffile_g_aLine), "version ", 8) )
+    {
+        stdConffile_Close();
+        if (!stdConffile_OpenReadMotsScrambled(fpath))
+            return 0;
+        bScrambled = 1;
+        stdConffile_ReadLine();
+    }
+    if ( !stdConffile_ReadLine() || _sscanf(stdConffile_g_aLine, "model: %31s", pModelOut) != 1 )
+    {
+        pModelOut[0] = 0;
+        stdConffile_Close();
+        return 0;
+    }
+    pModelOut[modelLen - 1] = 0;
+    // The force level is bin SITHBIN_JEDI_RANK; MotS XORs each bin number with
+    // the scramble key at the start of its line (jkPlayer_MPCBinReadMots).
+    for (;;)
+    {
+        if (bScrambled) key = stdConffile_GetMotsScrambleKey();
+        if (!stdConffile_ReadLine()) break;
+        if ( _sscanf(stdConffile_g_aLine, "bin: %d value: %f", &bin, &value) == 2
+          && (bScrambled ? (bin ^ key) : bin) == SITHBIN_JEDI_RANK )
+        {
+            *pRankOut = (int)value;
+            break;
+        }
+    }
+    stdConffile_Close();
     return 1;
 }
 

@@ -18,7 +18,13 @@
 #include "World/sithTrackThing.h"
 #include "Devices/sithComm.h"
 #include "stdPlatform.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "World/jkPlayer.h" // Added: JKFLAG_SABERON
 #include "jk.h"
+
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 void sithDSSThing_Pos(SithThing *pThing, int toID, int dpFlags)
 {
@@ -52,6 +58,12 @@ void sithDSSThing_Pos(SithThing *pThing, int toID, int dpFlags)
 
         NETMSG_END(DSS_THINGPOS);
 
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: this player's own updates carry their time to the
+        // games that draw from them (Platform/Networking/Hits/stdComm_WSRelayMotion.c).
+        if ( stdComm_WSRelay_SendOwnPos(pThing, toID, dpFlags) )
+            return;
+#endif
         sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, toID, 255, dpFlags);
     }
 }
@@ -72,6 +84,12 @@ int sithDSSThing_ProcessPos(SithMessage *pMsg)
     //printf("sithDSSThing_ProcessPos %x %x\n", guid, pThing->controlType);
     if ( !pThing || pThing->type == SITH_THING_FREE || !pThing->sector )
         return 0;
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: another player's timed update goes to the buffer
+    // they're drawn from (stdComm_WSRelayMotion.c).
+    if ( stdComm_WSRelay_TakeMotion(pThing, pMsg) )
+        return 1;
+#endif
     uint16_t attach_flags = NETMSG_POPU16();
     if ( !attach_flags && pThing->attach_flags )
         sithThing_DetachThing(pThing);
@@ -92,6 +110,8 @@ int sithDSSThing_ProcessPos(SithMessage *pMsg)
         pThing->physicsParams.flags = NETMSG_POPU32();
 
         pThing->physicsParams.vel = NETMSG_POPVEC3();
+        if ( pThing->type == SITH_THING_PLAYER )
+            sithPuppet_SetNetVelocity(pThing, &pThing->physicsParams.vel); // Added
         if ( attach_flags )
         {
             rdVector_Zero3(&pThing->physicsParams.angularVelocity);
@@ -112,6 +132,11 @@ int sithDSSThing_ProcessPos(SithMessage *pMsg)
         rdVector_Zero3(&lookTmp);
         lookTmp.x = NETMSG_POPF32();
         sithActor_SetHeadPYR(pThing, &lookTmp);
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: which of this player's updates this game shows
+        // now, which a claim for a hit on them names.
+        stdComm_WSRelay_NotePos(pThing, pMsg->netMsg.idx);
+#endif
     }
 
     return 1;
@@ -141,6 +166,15 @@ void sithDSSThing_UpdateState(SithThing *pThing, int toID, int outstream)
     if (!pThing || !pThing->type || !pThing->sector || !sithThing_ValidateThingPointer(pThing) || MOTS_ONLY_FLAG(pThing->physicsParams.flags & SITH_PF_4000000))
         return;
 
+    // Added: with -verboseNetworking, note our own saber going out on/off
+    {
+        static uint32_t lastSentSaberOn = 0;
+        if (Main_bVerboseNetworking && pThing == sithPlayer_g_pLocalPlayerThing && ((pThing->jkFlags & JKFLAG_SABERON) != lastSentSaberOn))
+        {
+            lastSentSaberOn = pThing->jkFlags & JKFLAG_SABERON;
+            stdPlatform_Printf("sithDSSThing: sending our saber %s (jkFlags %x) to %d\n", lastSentSaberOn ? "on" : "off", pThing->jkFlags, toID);
+        }
+    }
     NETMSG_PUSHS32(pThing->guid);
     NETMSG_PUSHS32(pThing->jkFlags);
     NETMSG_PUSHS32(pThing->msecLifeLeft);
@@ -155,7 +189,9 @@ void sithDSSThing_UpdateState(SithThing *pThing, int toID, int outstream)
         NETMSG_PUSHS16(pThing->puppet->field_0);
         NETMSG_PUSHS16(pThing->puppet->field_4);
     }
-    NETMSG_PUSHS32(pThing->light);
+    // Fixed (from tristamus/OpenJKDF2 7d69ae6e): was PUSHS32, which cut it to a whole number; the
+    // receiver reads a float. [WIRE] JK.EXE sends the float (0.2 = cdcc4c3e for a player).
+    NETMSG_PUSHF32(pThing->light);
     switch ( pThing->type )
     {
         case SITH_THING_ACTOR:
@@ -216,7 +252,12 @@ int sithDSSThing_ProcessStateUpdate(SithMessage *pMsg)
         return 0;
     if ( !pThing->sector )
         return 0;
+    uint32_t oldJkFlags = pThing->jkFlags; // Added
     pThing->jkFlags = NETMSG_POPS32();
+    // Added: with -verboseNetworking, note other players' saber turning on/off
+    if (Main_bVerboseNetworking && pThing->type == SITH_THING_PLAYER && oldJkFlags != pThing->jkFlags)
+        stdPlatform_Printf("sithDSSThing: %08x saber %s (jkFlags %x -> %x) from %x\n", pThing->guid,
+                           (pThing->jkFlags & JKFLAG_SABERON) ? "on" : "off", oldJkFlags, pThing->jkFlags, (unsigned)pMsg->netMsg.idx);
     pThing->msecLifeLeft = NETMSG_POPS32();
     SithSector* pSector = sithSector_GetPtrFromIdx(NETMSG_POPS16());
     if ( !pSector )
@@ -227,7 +268,15 @@ int sithDSSThing_ProcessStateUpdate(SithMessage *pMsg)
 
     uint32_t flags = NETMSG_POPS32();
     if ( pThing->type == SITH_THING_PLAYER && (pThing->flags & SITH_TF_DEAD) && !(flags & SITH_TF_DEAD) && MOTS_ONLY_COND(pThing != sithPlayer_g_pLocalPlayerThing))
+    {
+        // Added: a player who was dead when we joined got their death pose from
+        // sithDSS_ProcessPuppetStatus, which doesn't record its track in
+        // field_18, so sithPlayer_NewPlayer couldn't stop it and they ran
+        // around lying down. They've respawned, so drop every stale track.
+        if (pThing->renderData.puppet && pThing->puppet)
+            sithPuppet_ResetTrack(pThing);
         sithPlayer_debug_loadauto(pThing);
+    }
     
     // Lol, anticheat?
     if ( (pThing->flags & SITH_TF_INVULN) != 0 )
@@ -319,6 +368,14 @@ void sithDSSThing_PlaySound(SithThing *pThing, rdVector3 *pPos, sithSound *hSnd,
         NETMSG_PUSHS32(pThing->guid);
     }
     NETMSG_PUSHU32(guid);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the time of a sound that follows the player, after what
+    // the original sends, so other games play it when they draw the player there
+    // (stdComm_WSRelay_HoldForTimeline).
+    uint32_t t32;
+    if ( (playflags & SITHSOUNDFLAG_FOLLOWSTHING) && stdComm_WSRelay_TimelineTime(pThing, &t32) )
+        NETMSG_PUSHU32(t32);
+#endif
     
     NETMSG_END(DSS_PLAYSOUND);
     
@@ -374,6 +431,13 @@ void sithDSSThing_PlaySoundMode(SithThing *pThing, int16_t mode, int channel, fl
     NETMSG_PUSHS32(channel);
     NETMSG_PUSHF32(a4);
     NETMSG_PUSHS16(mode);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the time, after what the original sends, so other games
+    // play it when they draw the player there (stdComm_WSRelay_HoldForTimeline).
+    uint32_t t32;
+    if ( stdComm_WSRelay_TimelineTime(pThing, &t32) )
+        NETMSG_PUSHU32(t32);
+#endif
 
     NETMSG_END(DSS_PLAYSOUNDMODE);
 
@@ -412,6 +476,13 @@ void sithDSSThing_PlayKey(SithThing *pThing, rdKeyframe *pKey, int flags, int16_
     NETMSG_PUSHS16(lo);
     NETMSG_PUSHS32(flags);
     NETMSG_PUSHS32(trackGUID);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the time, after what the original sends, so other games
+    // play it when they draw the player there (stdComm_WSRelay_HoldForTimeline).
+    uint32_t t32;
+    if ( stdComm_WSRelay_TimelineTime(pThing, &t32) )
+        NETMSG_PUSHU32(t32);
+#endif
 
     NETMSG_END(DSS_PLAYKEY);
 
@@ -460,7 +531,14 @@ void sithDSSThing_PlayKeyMode(SithThing *pThing, int16_t mode, int trackGUID, in
     NETMSG_PUSHS32(pThing->guid);
     NETMSG_PUSHS32(trackGUID);
     NETMSG_PUSHS16(mode);
-    
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the time, after what the original sends, so other games
+    // play it when they draw the player there (stdComm_WSRelay_HoldForTimeline).
+    uint32_t t32;
+    if ( stdComm_WSRelay_TimelineTime(pThing, &t32) )
+        NETMSG_PUSHU32(t32);
+#endif
+
     NETMSG_END(DSS_PLAYKEYMODE);
 
     sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, idTo, outstream, 0);
@@ -530,6 +608,13 @@ void sithDSSThing_StopKey(SithThing *pThing, int trackGUID, flex32_t fadeTime, i
     NETMSG_PUSHS32(pThing->guid);
     NETMSG_PUSHS32(trackGUID);
     NETMSG_PUSHF32(fadeTime);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the time, after what the original sends, so other games
+    // play it when they draw the player there (stdComm_WSRelay_HoldForTimeline).
+    uint32_t t32;
+    if ( stdComm_WSRelay_TimelineTime(pThing, &t32) )
+        NETMSG_PUSHU32(t32);
+#endif
 
     NETMSG_END(DSS_STOPKEY);
 
@@ -626,16 +711,73 @@ void sithDSSThing_Fire(SithThing *pWeapon, SithThing *pProjectile, rdVector3 *pF
     NETMSG_PUSHF32(a9);
     NETMSG_PUSHS32(thingId);
 
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: when the shot was fired, after where the shooter was, so
+    // other games start it as far along its path as it really is (stdComm_WSRelay_ShotCatchUp).
+    uint32_t t32;
+    int bFireTime = stdComm_WSRelay_TimelineTime(pWeapon, &t32);
+#endif
     if (idk == 0 || !Main_bMotsCompat) {
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: where the shooter was, at the end, where older
+        // games don't look (sithDSSThing_ProcessFire). Never to JK.EXE.
+        if ( stdComm_bOpenJkdf2Wire )
+        {
+            NETMSG_PUSHVEC3(pWeapon->position);
+            if ( bFireTime )
+                NETMSG_PUSHU32(t32);
+        }
+#endif
         NETMSG_END(DSS_FIREPROJECTILE);
     }
     else if (Main_bMotsCompat) {
         NETMSG_PUSHS32(idk);
+#ifdef PLATFORM_DPLAY
+        if ( stdComm_bOpenJkdf2Wire )
+        {
+            NETMSG_PUSHVEC3(pWeapon->position); // Added: as above
+            if ( bFireTime )
+                NETMSG_PUSHU32(t32);
+        }
+#endif
         NETMSG_END(DSS_MOTS_NEW_2);
     }
 
     sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, sendtoId, mpFlags, 0);
+
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: claims for what the shot hit as it was made go after it.
+    stdComm_WSRelay_FlushHits();
+#endif
 }
+
+#ifdef PLATFORM_DPLAY
+// Added: another game's shot, made here by sithDSSThing_ProcessFire or
+// sithDSSThing_ProcessMOTSNew2 from its fire message. Hit what you see: it starts
+// where its shooter was (the message says, past what older games send), it goes by
+// that game's id from the start, and this game keeps what it needs to check the
+// claims for what it hits, with how far along its path the caller moves it after
+// (catchUp, in s). From the browser build (tristamus' fork).
+static SithThing* sithDSSThing_FireOthersShot(const rdVector3 *pShooterPos, SithThing *pShooter, SithThing *pTemplate,
+                                              rdVector3 *pFireDir, rdVector3 *pFirePos, sithSound *pSound, int anim,
+                                              flex32_t scale, int16_t scaleFlags, flex32_t a9, int thingId, int idk,
+                                              flex_t catchUp)
+{
+    sithWeapon_pFireStartSector = NULL;
+    if ( pShooterPos )
+        stdComm_WSRelay_ShotStart(pShooter, thingId, pShooterPos, &sithWeapon_fireStartPos, &sithWeapon_pFireStartSector);
+
+    stdComm_WSRelay_fireGuid = thingId;
+    SithThing* pShot = sithWeapon_WeaponFireProjectile(pShooter, pTemplate, pFireDir, pFirePos, pSound, anim, scale, scaleFlags, a9, idk);
+    stdComm_WSRelay_fireGuid = 0;
+    sithWeapon_pFireStartSector = NULL;
+
+    // Its game moves it on by the time it was late, as here
+    // (sithWeapon_WeaponFireProjectile), and this one by the time since.
+    stdComm_WSRelay_NoteShot(pTemplate, pFirePos, thingId, scale, scaleFlags, (a9 > 0.02 ? a9 : 0.0) + catchUp);
+    return pShot;
+}
+#endif
 
 // MOTS altered (Added argument to sithWeapon_WeaponFireProjectile)
 int sithDSSThing_ProcessFire(SithMessage *pMsg)
@@ -660,6 +802,22 @@ int sithDSSThing_ProcessFire(SithMessage *pMsg)
         flex32_t a9 = NETMSG_POPF32();
         int thingId = NETMSG_POPS32();
         //printf("sithDSSThing_ProcessFire %x %x (%f %f %f) (%f %f %f) %x %f %x %f\n", idx, templateIdx, aimError.x, aimError.y, aimError.z, fireOffset.x, fireOffset.y, fireOffset.z, anim, scale, scaleFlags, a9);
+#ifdef PLATFORM_DPLAY
+        // Added: where the shooter was, which older games don't send, for Hit what
+        // you see (sithDSSThing_FireOthersShot).
+        rdVector3 shooterPos;
+        int bShooterPos = NETMSG_IN_LEFT(pMsg) >= (intptr_t)sizeof(rdVector3);
+        if ( bShooterPos )
+            shooterPos = NETMSG_POPVEC3();
+        // Added: and when it was fired, on its game's clock, which a game sends while
+        // this one draws its player from timed updates.
+        flex_t catchUp = 0.0;
+        if ( bShooterPos && NETMSG_IN_LEFT(pMsg) >= 4 )
+            catchUp = stdComm_WSRelay_ShotCatchUp(pThing, NETMSG_POPU32());
+        SithThing* pThing2 = sithDSSThing_FireOthersShot(bShooterPos ? &shooterPos : NULL, pThing, pCreateThingTemplate,
+                                                         &fireOffset, &aimError, pSound, anim, scale, scaleFlags, a9, thingId, 0,
+                                                         catchUp);
+#else
         SithThing* pThing2 = sithWeapon_WeaponFireProjectile(
                       pThing,
                       pCreateThingTemplate,
@@ -671,10 +829,15 @@ int sithDSSThing_ProcessFire(SithMessage *pMsg)
                       scaleFlags,
                       a9,
                       0);
+#endif
         if ( pThing2 )
         {
             pThing2->guid = thingId;
             pThing2->flags |= SITH_TF_INVULN;
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: as far along its path as it really is.
+            stdComm_WSRelay_MoveShotOn(pThing2, catchUp);
+#endif
         }
         return 1;
     }
@@ -698,6 +861,21 @@ int sithDSSThing_ProcessMOTSNew2(SithMessage *msg)
         flex32_t a9 = NETMSG_POPF32();
         int thingId = NETMSG_POPS32();
         int idk = NETMSG_POPS32();
+#ifdef PLATFORM_DPLAY
+        // Added: as in sithDSSThing_ProcessFire.
+        rdVector3 shooterPos;
+        int bShooterPos = NETMSG_IN_LEFT(msg) >= (intptr_t)sizeof(rdVector3);
+        if ( bShooterPos )
+            shooterPos = NETMSG_POPVEC3();
+        // Added: and when it was fired, on its game's clock, which a game sends while
+        // this one draws its player from timed updates.
+        flex_t catchUp = 0.0;
+        if ( bShooterPos && NETMSG_IN_LEFT(msg) >= 4 )
+            catchUp = stdComm_WSRelay_ShotCatchUp(pThing, NETMSG_POPU32());
+        SithThing* pThing2 = sithDSSThing_FireOthersShot(bShooterPos ? &shooterPos : NULL, pThing, pCreateThingTemplate,
+                                                         &fireOffset, &aimError, pSound, anim, scale, scaleFlags, a9, thingId, idk,
+                                                         catchUp);
+#else
         SithThing* pThing2 = sithWeapon_WeaponFireProjectile(
                       pThing,
                       pCreateThingTemplate,
@@ -709,10 +887,15 @@ int sithDSSThing_ProcessMOTSNew2(SithMessage *msg)
                       scaleFlags,
                       a9,
                       idk);
+#endif
         if ( pThing2 )
         {
             pThing2->guid = thingId;
             pThing2->flags |= SITH_TF_INVULN;
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: as far along its path as it really is.
+            stdComm_WSRelay_MoveShotOn(pThing2, catchUp);
+#endif
         }
         return 1;
     }
@@ -1063,7 +1246,14 @@ int sithDSSThing_ProcessFullDescription(SithMessage *pMsg)
     thing->collide = NETMSG_POPS16();
     thing->collideSize = NETMSG_POPF32();
     thing->light = NETMSG_POPF32();
-    thing->jkFlags = NETMSG_POPU32();
+    {
+        uint32_t oldJkFlags = thing->jkFlags; // Added
+        thing->jkFlags = NETMSG_POPU32();
+        // Added: with -verboseNetworking, note other players' saber flags arriving this way too
+        if (Main_bVerboseNetworking && thing->type == SITH_THING_PLAYER && oldJkFlags != thing->jkFlags)
+            stdPlatform_Printf("sithDSSThing: %08x full description, jkFlags %x -> %x from %x\n", thing->guid,
+                               oldJkFlags, thing->jkFlags, (unsigned)pMsg->netMsg.idx);
+    }
 
     if ( thing->flags & SITH_TF_CAPTURED )
     {
@@ -1334,11 +1524,26 @@ int sithDSSThing_ProcessAttachment(SithMessage *pMsg)
             return 0;
         if (v3 & SITH_ATTACH_THINGFACE)
         {
+            // Added: the face is a number in the sender's copy of the model,
+            // which a graphics pack only one player runs can give more faces
+            // (packaging/wasm/index.html, OPTIONAL_PACKS). Past the end of
+            // ours, the thing is attached without a face, as when the model
+            // has no mesh to stand on.
+            int faceIdx = NETMSG_POPS16();
+            rdModel3* pModel = v9->renderData.type == RD_THING_MODEL3 ? v9->renderData.model3 : NULL;
+            rdMesh* pMesh = pModel && pModel->numGeos > 0 && pModel->aGeos[0].numMeshes > 0 ? pModel->aGeos[0].aMeshes : NULL;
+            if (!pMesh || faceIdx < 0 || faceIdx >= pMesh->numFaces)
+            {
+                stdPlatform_Printf("OpenJKDF2: a thing attached to face %d of a model with %d here, so attached without it\n",
+                                   faceIdx, pMesh ? pMesh->numFaces : 0);
+                sithThing_AttachThingToThing(v1, v9);
+                return 1;
+            }
             sithThing_AttachThingToThingFace(
                 v1,
                 v9,
-                &v9->renderData.model3->aGeos[0].aMeshes->faces[NETMSG_POPS16()],
-                v9->renderData.model3->aGeos[0].aMeshes->aVertices,
+                &pMesh->faces[faceIdx],
+                pMesh->aVertices,
                 1);
             v1->attach_flags = v3;
             return 1;
@@ -1489,7 +1694,10 @@ int sithDSSThing_ProcessCreateThing(SithMessage *pMsg)
         int pThing2Id = NETMSG_POPS32();
         if ( pThing2Id < 0 )
         {
-            SithSector* pSector = sithSector_GetPtrFromIdx(NETMSG_POPS16());
+            // Altered: the sector goes out as 32 bits (sithDSSThing_CreateThing above,
+            // and MoTS's own reader). Reading 16 shifted the position and guid that
+            // follow, so other players' copy landed near the origin under a wrong guid.
+            SithSector* pSector = sithSector_GetPtrFromIdx(NETMSG_POPS32());
             if ( !pSector )
                 return 0;
             rdVector3 pos = NETMSG_POPVEC3();

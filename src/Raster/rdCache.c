@@ -92,9 +92,10 @@ rdProcEntry *rdCache_GetProcEntry()
         idx = rdCache_numProcFaces;
     }
 
-    if ( (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedVertices) < 0x20 
-        || (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedTexVertices) < 0x20
-        || (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedIntensities) < 0x20) {
+    // Altered: 0x20 -> RDCLIP_MAX_VERTICES, the clipper writes that many into the entry
+    if ( (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedVertices) < RDCLIP_MAX_VERTICES
+        || (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedTexVertices) < RDCLIP_MAX_VERTICES
+        || (unsigned int)(RDCACHE_MAX_VERTICES - rdCache_numUsedIntensities) < RDCLIP_MAX_VERTICES) {
 #ifdef QOL_IMPROVEMENTS
         rdCache_Flush();
         idx = rdCache_numProcFaces;
@@ -1064,14 +1065,18 @@ solid_tri:
                 v71 = active_6c->numVertices;
                 do
                 {
+                    // Altered: JKM.EXE scales these by 63, the mono light-table row count,
+                    // then by 255 again when it makes the colour, so any light at all
+                    // turned the face white. Keep them 0..1 for that step. Fix ported from
+                    // OpenJKDF2-MotS-Fixes by Andrei Kiralv/Darkahn and Coda Lilitari.
                     v73 = stdMath_Clamp(stdMath_Clamp(*iterRedIntense + active_6c->extralight, 0.0, 1.0), v148, 1.0);
-                    *iterRedIntense = v73 * 63.0;
+                    *iterRedIntense = v73;
 
                     v73 = stdMath_Clamp(stdMath_Clamp(*iterGreenIntense + active_6c->extralight, 0.0, 1.0), v148, 1.0);
-                    *iterGreenIntense = v73 * 63.0;
+                    *iterGreenIntense = v73;
 
                     v73 = stdMath_Clamp(stdMath_Clamp(*iterBlueIntense + active_6c->extralight, 0.0, 1.0), v148, 1.0);
-                    *iterBlueIntense = v73 * 63.0;
+                    *iterBlueIntense = v73;
 
                     ++iterRedIntense;
                     ++iterGreenIntense;
@@ -1223,6 +1228,14 @@ LABEL_232:
                     intRed += (flex_t)v91->colors[baseLight].r; // FLEXTODO
                     intGreen += (flex_t)v91->colors[baseLight].g; // FLEXTODO
                     intBlue += (flex_t)v91->colors[baseLight].b; // FLEXTODO
+
+#ifdef SDL2_RENDER
+                    // Added: this path never set the vertex light level, unlike the others
+                    rdCache_aHWVertices[rdCache_totalVerts].lightLevel =
+                        0.2126 * active_6c->paRedIntensities[vtx_idx]
+                        + 0.7152 * active_6c->paGreenIntensities[vtx_idx]
+                        + 0.0722 * active_6c->paBlueIntensities[vtx_idx];
+#endif
 
                     v94 = (uint8_t)stdMath_Clamp(intGreen, 0.0, 255.0);
                     v95 = (uint8_t)stdMath_Clamp(intBlue, 0.0, 255.0);

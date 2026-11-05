@@ -6,6 +6,7 @@
 
 void jkQuakeConsole_Startup();
 void jkQuakeConsole_Shutdown();
+void jkQuakeConsole_Close(); // Added
 void jkQuakeConsole_Render();
 void jkQuakeConsole_ExecuteCommand(const char* pCmd);
 void jkQuakeConsole_SendInput(WPARAM wParam, int bIsChar);

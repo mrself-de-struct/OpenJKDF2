@@ -1,4 +1,5 @@
 #include "sithMulti.h"
+#include "Main/jkServer.h" // Added: votes
 
 #include "Win95/stdComm.h"
 #include "Gameplay/sithEvent.h"
@@ -9,6 +10,7 @@
 #include "jk.h"
 #include "General/sithStrTable.h"
 #include "General/stdString.h"
+#include "Platform/Common/stdLog.h" // Added
 #include "Devices/sithConsole.h"
 #include "Dss/sithDSSThing.h"
 #include "Dss/sithDSS.h"
@@ -57,6 +59,26 @@ void sithMulti_SendChat(const char *pStr, int arg0, int arg1)
     sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, -1, 1, 1);
 }
 
+// Added: a chat message for one machine only (Main/jkServer.c: votes to the host,
+// the host's answers to one player).
+void sithMulti_SendChatTo(const char *pStr, int arg0, int arg1, int idTo)
+{
+    uint32_t pStr_len = strlen(pStr) + 1;
+    if ( pStr_len >= 0x80 )
+        pStr_len = 128;
+
+    NETMSG_START;
+
+    NETMSG_PUSHS32(arg0);
+    NETMSG_PUSHS32(arg1);
+    NETMSG_PUSHS32(pStr_len);
+    NETMSG_PUSHSTR(pStr, pStr_len);
+
+    NETMSG_END(DSS_CHAT);
+
+    sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, idTo, 1, 1);
+}
+
 // MOTS altered
 int sithMulti_ProcessChat(SithMessage *pMsg)
 {
@@ -73,6 +95,13 @@ int sithMulti_ProcessChat(SithMessage *pMsg)
         arg2 = 128;
     NETMSG_POPSTR(v5, arg2);
     v5[arg2 + 1] = 0;
+
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    // Added: "!callvote ..." / "!vote ..." for the server (Main/jkServer.c), not shown as chat
+    v5[sizeof(v5) - 1] = 0;
+    if ( jkServer_HandleChat((uint32_t)pMsg->netMsg.idx, v5) )
+        return 1;
+#endif
 
     if ( arg1 < 0 )
         jk_snwprintf(sithMulti_chatWStrTmp, 256, u"%S", v5); // Added: char -> wchar
@@ -217,7 +246,17 @@ int sithMulti_Startup()
     // Remove all actor aThings from the world
     sithMulti_RemoveAllActorsFromWorld(sithWorld_g_pCurrentWorld);
 
+#ifdef PLATFORM_DPLAY
+    // Vanilla JK.EXE seeds the level checksum with the session's checksumSeed
+    // (DPSESSIONDESC2.dwUser1); with seed 0 every vanilla host rejects us with
+    // "Checksum failure".
+    // (OpenJKDF2 peers on the web lobby compute it with seed 0.)
+    sithNet_checksum = sithWorld_CalcWorldChecksum(sithWorld_g_pCurrentWorld, stdComm_bOpenJkdf2Wire ? 0 : (uint32_t)jkGuiMultiplayer_checksumSeed);
+    stdPlatform_Printf("sithMulti: level %s checksum %08x (seed %08x)\n",
+                       sithWorld_g_pCurrentWorld->map_jkl_fname, (unsigned)sithNet_checksum, (unsigned)jkGuiMultiplayer_checksumSeed);
+#else
     sithNet_checksum = sithWorld_CalcWorldChecksum(sithWorld_g_pCurrentWorld, 0/*jkGuiMultiplayer_checksumSeed*/); // Added: TODO fix the checksum seed
+#endif
     sithNet_syncIdx = 0;
     sithSurface_numUnsyncedSurfaces = 0;
     sithSector_numModifiedSectors = 0;
@@ -260,6 +299,13 @@ int sithMulti_SendJoinRequest(int sendto_id)
     NETMSG_PUSHWSTR(jkPlayer_playerShortName, 0x10);
     NETMSG_PUSHWSTR(sithMulti_name, 0x20);
     NETMSG_PUSHU32(sithNet_checksum);
+    // Added: logged once, as the join request is sent again every 2 s while joining.
+    static uint32_t lastLoggedChecksum = 0;
+    if ( sithNet_checksum != lastLoggedChecksum )
+    {
+        stdPlatform_Printf("OpenJKDF2: asking to join with world checksum %x\n", sithNet_checksum);
+        lastLoggedChecksum = sithNet_checksum;
+    }
 
     NETMSG_END(DSS_JOINREQUEST);
     return sithComm_SendMsgToPlayer(&sithComm_netMsgTmp, sendto_id, 1, 0);
@@ -655,7 +701,11 @@ int sithMulti_ProcessPong(SithMessage *pMsg)
                 if ( ++v1 >= jkPlayer_maxPlayers )
                     return 1;
             }
-            _sprintf(std_g_genBuffer, "Ping time to %S is %d msec", jkPlayer_playerInfos[v1].player_name, sithTime_g_msecGameTime - sithMulti_msecPingStartTime);
+            // Altered: %S is wchar_t (4 bytes) on Linux/macOS, names are char16_t: the line stopped at "Ping time to"
+            char name[32];
+            stdString_WcharToChar(name, jkPlayer_playerInfos[v1].player_name, 31);
+            name[31] = 0;
+            stdString_snprintf(std_g_genBuffer, 512, "Ping time to %s is %d msec", name, sithTime_g_msecGameTime - sithMulti_msecPingStartTime);
             sithConsole_PrintString(std_g_genBuffer);
         }
     }
@@ -743,6 +793,7 @@ int sithMulti_CheckPlayers(int32_t msecTime, SithEventParams* pParam)
             {
                 if ( (v1->flags & 1) != 0 && sithTime_g_msecGameTime > v1->msecLastCommTime + MULTI_TIMEOUT_MS )
                 {
+                    stdPlatform_Printf("OpenJKDF2: No packets from client id %x for %d s, dropping it.\n", v1->playerNetId, MULTI_TIMEOUT_MS / 1000); // Added
                     v2 = v1->playerNetId;
                     if ( sithNet_isServer )
                     {
@@ -786,6 +837,9 @@ int sithMulti_CheckPlayers(int32_t msecTime, SithEventParams* pParam)
     }
     else if ( sithTime_g_msecGameTime > jkPlayer_playerInfos[0].msecLastCommTime + MULTI_TIMEOUT_MS )
     {
+        // Added: the browser build offers its network log on this line.
+        if ( jkPlayer_playerInfos[0].playerNetId == sithNet_serverNetId )
+            stdPlatform_Printf("OpenJKDF2: Leaving the game: no packets from the host for %d s.\n", MULTI_TIMEOUT_MS / 1000);
         jkPlayer_playerInfos[0].msecLastCommTime = sithTime_g_msecGameTime;
         v6 = sithStrTable_GetUniStringWithFallback("%s_HAS_LEFT_THE_GAME");
         jk_snwprintf(a1, 0x80u, v6, jkPlayer_playerInfos);
@@ -832,11 +886,31 @@ void sithMulti_SyncPlayers(int idTo, int dpFlags)
             v15[15] = 0;
 
             NETMSG_PUSHSTR(v15, 0x10);
+#ifdef PLATFORM_DPLAY
+            // [WIRE] JK.EXE's layout: 1 byte (team, see ProcessSyncPlayers), then
+            // kills, killed, suicides, score as s16 -- 9 bytes, not 10. Verified
+            // against every DSS_LEAVEJOIN in captures of vanilla JK hosts.
+            // MotS hasn't been captured, so it keeps OpenJKDF2's layout.
+            if (Main_bMotsCompat || stdComm_bOpenJkdf2Wire) {   // web lobby peers use OpenJKDF2's layout
+                NETMSG_PUSHS16(v6->numKills);
+                NETMSG_PUSHS16(v6->numKilled);
+                NETMSG_PUSHS16(v6->numSuicides);
+                NETMSG_PUSHS16(v6->teamNum);
+                NETMSG_PUSHS16(v6->score);
+            } else {
+            NETMSG_PUSHU8(v6->teamNum);
+            NETMSG_PUSHS16(v6->numKills);
+            NETMSG_PUSHS16(v6->numKilled);
+            NETMSG_PUSHS16(v6->numSuicides);
+            NETMSG_PUSHS16(v6->score);
+            }
+#else
             NETMSG_PUSHS16(v6->numKills);
             NETMSG_PUSHS16(v6->numKilled);
             NETMSG_PUSHS16(v6->numSuicides);
             NETMSG_PUSHS16(v6->teamNum);
             NETMSG_PUSHS16(v6->score); // why is this s16 here but s32 in LobbyMessage?
+#endif
         }
     }
 
@@ -889,6 +963,8 @@ int sithMulti_ProcessSyncPlayers(SithMessage *pMsg)
         if ( (v6->flags & 4) != 0 )
         {
             v8 = NETMSG_POPS32();
+            if ( v6->playerNetId != v8 )
+                sithComm_ForgetSender(v6->playerNetId); // Added: the slot's last player left
             v6->playerNetId = v8;
             if ( (v6->flags & 1) == 0 || (v7 & 1) != 0 || (g_submodeFlags & 8) != 0 )
             {
@@ -932,11 +1008,33 @@ int sithMulti_ProcessSyncPlayers(SithMessage *pMsg)
 
             stdString_CharToWchar(v6->player_name, a2, 15);
 
+#ifdef PLATFORM_DPLAY
+            // [WIRE] Vanilla record after the 16-byte name: u8, then kills, killed,
+            // suicides, score (s16). Reading the old 5 x s16 layout shifted every
+            // following player by one byte (garbled names and scores).
+            // [INFERRED] the u8 is the team; it is 0 in every capture so far
+            // (no team games) -- confirm with a capture of a team game.
+            // MotS hasn't been captured, so it keeps OpenJKDF2's layout.
+            if (Main_bMotsCompat || stdComm_bOpenJkdf2Wire) {   // web lobby peers use OpenJKDF2's layout
+                v6->numKills = NETMSG_POPS16();
+                v6->numKilled = NETMSG_POPS16();
+                v6->numSuicides = NETMSG_POPS16();
+                v6->teamNum = NETMSG_POPS16();
+                v6->score = NETMSG_POPS16();
+            } else {
+            v6->teamNum = NETMSG_POPU8();
+            v6->numKills = NETMSG_POPS16();
+            v6->numKilled = NETMSG_POPS16();
+            v6->numSuicides = NETMSG_POPS16();
+            v6->score = NETMSG_POPS16();
+            }
+#else
             v6->numKills = NETMSG_POPS16();
             v6->numKilled = NETMSG_POPS16();
             v6->numSuicides = NETMSG_POPS16();
             v6->teamNum = NETMSG_POPS16();
             v6->score = NETMSG_POPS16();
+#endif
         }
     }
     if (sithNet_MultiModeFlags & MULTIMODEFLAG_TEAMS)
@@ -1065,6 +1163,7 @@ int sithMulti_ProcessJoinRequest(SithMessage *pMsg)
         if ( __strcmpi(v11, sithWorld_g_pCurrentWorld->map_jkl_fname) )
         {
             sithMulti_verbosePrintf("Bad map name %s\n", v11);
+            stdLog_Printf("server", "join refused: player %x has map %s, we run %s", v1, v11, sithWorld_g_pCurrentWorld->map_jkl_fname); // Added
 
             NETMSG_START;
             NETMSG_PUSHS32(6);
@@ -1091,6 +1190,7 @@ int sithMulti_ProcessJoinRequest(SithMessage *pMsg)
         if ( sithMulti_quitGameState )
         {
             sithMulti_verbosePrintf("Idk 1\n");
+            stdLog_Printf("server", "join refused: player %x, the level is ending", v1); // Added
             NETMSG_START;
             NETMSG_PUSHS32(3);
             NETMSG_PUSHS32(0);
@@ -1131,6 +1231,7 @@ int sithMulti_ProcessJoinRequest(SithMessage *pMsg)
         if ( v5 == jkPlayer_maxPlayers )
         {
             sithMulti_verbosePrintf("Too many players\n");
+            stdLog_Printf("server", "join refused: player %x, the game is full (%d slots)", v1, jkPlayer_maxPlayers); // Added
             NETMSG_START;
             NETMSG_PUSHS32(5);
             NETMSG_PUSHS32(0);
@@ -1157,9 +1258,23 @@ int sithMulti_ProcessJoinRequest(SithMessage *pMsg)
             //jkPlayer_playerInfos[sithMulti_curWelcomePlayerNum].flags = 5;
 
             uint32_t popped_check = NETMSG_POPS32();
-            v10 = sithNet_checksum;
-            if ( v10 != popped_check )
+            // Added: who is coming in, for the log
             {
+                char aName[64];
+                stdString_WcharToChar(aName, jkPlayer_playerInfos[sithMulti_curWelcomePlayerNum].player_name, 63);
+                aName[63] = 0;
+                stdLog_Printf("server", "player \"%s\" (id %x) is joining into slot %d", aName, v1, sithMulti_curWelcomePlayerNum);
+            }
+            v10 = sithNet_checksum;
+            // Added: always logged, though a different one still joins, so a
+            // game that plays differently on two PCs can be told apart from
+            // one whose scripts and templates match (a graphics pack only one
+            // player runs leaves it the same).
+            if ( v10 == popped_check )
+                stdPlatform_Printf("OpenJKDF2: a joining player's world checksum matches ours (%x)\n", v10);
+            else
+            {
+                stdPlatform_Printf("OpenJKDF2: a joining player's world checksum is %x, ours is %x\n", popped_check, v10);
                 sithMulti_verbosePrintf("Bad checksum %x vs %x\n", v10, popped_check);
 #if 0
                 NETMSG_START;

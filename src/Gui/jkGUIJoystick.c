@@ -791,6 +791,15 @@ int jkGuiJoystick_OkCancelClick(jkGuiElement *pElement, jkGuiMenu *pMenu, int32_
     {
         jkGuiRend_PlayWav(pMenu->soundClick);
         result = pElement->hoverId;
+#ifdef QOL_IMPROVEMENTS
+        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Cancel throws them away. (Esc while editing a control still just
+        // stops editing, below. With no joystick there's no Ok, so Esc stays
+        // Cancel.)
+        if ( !jkGuiJoystick_dword_557128 && jkGuiRend_IsEscapeKeyClick(pElement)
+             && jkGuiJoystick_aElements[JKGUIJOYSTICK_IDX_OK].bIsVisible )
+            return jkGuiJoystick_aElements[JKGUIJOYSTICK_IDX_OK].hoverId;
+#endif
         if ( !jkGuiJoystick_dword_557128 )
             return result;
         if ( result == 1 && jkGuiJoystick_aElements[JKGUIJOYSTICK_IDX_CONTROLS_LIST].bIsVisible )

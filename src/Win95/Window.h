@@ -47,6 +47,8 @@ extern int Window_screenXSize;
 extern int Window_screenYsSize;
 extern int Window_lastXRel;
 extern int Window_lastYRel;
+extern float Window_mouseXRelF; // Added: SDL3's fractional motion
+extern float Window_mouseYRelF;
 extern int Window_lastSampleMs;
 extern int Window_bMouseLeft;
 extern int Window_bMouseRight;

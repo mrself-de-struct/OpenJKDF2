@@ -40,6 +40,9 @@
 #include "Devices/sithComm.h"
 #include "stdPlatform.h"
 #include "jk.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 #ifdef FIXED_TIMESTEP_PHYS
 #include <math.h>
@@ -341,6 +344,13 @@ int sithUpdate()
 
             //printf("%f %u %f %f\n",framesToApply, wholeFramesToApply, rolloverCombine, sithTime_physicsRolloverFrames);
 
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: the time each step stands for
+            // (Platform/Networking/Hits/stdComm_WSRelayMotion.c).
+            if ( sithNet_isMulti )
+                stdComm_WSRelay_MotionFrame(wholeFramesToApply);
+#endif
+
             for (int i = 0; i < wholeFramesToApply; i++)
             {
                 sithSoundMixer_Update(sithTime_g_frameTimeFlex);
@@ -358,6 +368,12 @@ int sithUpdate()
                 //{
                 //    sithControl_Update(sithTime_g_frameTimeFlex, sithTime_g_frameTime);
                 //}
+#ifdef PLATFORM_DPLAY
+                // Added: Hit what you see: other players drawn from their timed
+                // updates, where they were at this step's moment.
+                if ( sithNet_isMulti )
+                    stdComm_WSRelay_MotionStep();
+#endif
                 sithThing_Update(sithTime_g_frameTimeFlex, sithTime_g_frameTime);
                 sithThing_MotsTick(0x1F, 0, 0);
 
@@ -410,6 +426,12 @@ int sithUpdate()
         
         sithConsole_Flush();
         sithMulti_Update(sithTime_g_frameTime);
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: where this game's player ended the frame, and the
+        // claims for what its attacks hit in it.
+        if ( sithNet_isMulti )
+            stdComm_Hits_Frame();
+#endif
         sithGamesave_Process();
 
         sithMain_tickEndMs = stdPlatform_GetTimeMsec();

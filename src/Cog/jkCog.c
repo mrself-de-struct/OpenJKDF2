@@ -12,6 +12,8 @@
 #include "World/jkPlayer.h"
 #include "Gameplay/jkSaber.h"
 #include "Gameplay/sithPlayer.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "stdPlatform.h"
 #include "Engine/sithPuppet.h"
 #include "Dss/sithMulti.h"
 #include "General/stdString.h"
@@ -22,6 +24,9 @@
 #include "Main/jkGame.h"
 #include "World/sithSector.h"
 #include "Win95/Windows.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 #include "jk.h"
 
@@ -153,6 +158,13 @@ int jkCog_StringsInit()
     return stdStrTable_Load(&jkCog_strings, "misc\\cogStrings.uni");
 }
 
+// Added: a cog's script name for -verboseNetworking logs
+#ifdef SITH_DEBUG_STRUCT_NAMES
+#define JKCOG_LOGNAME(ctx) ((ctx)->pScript ? (ctx)->pScript->aName : "?")
+#else
+#define JKCOG_LOGNAME(ctx) "cog"
+#endif
+
 void jkCog_SetFlags(sithCog *ctx)
 {
     signed int flags; // esi
@@ -162,6 +174,9 @@ void jkCog_SetFlags(sithCog *ctx)
     thing = sithCogExec_PopThing(ctx);
     if ( thing && flags)
     {
+        // Added: with -verboseNetworking, note scripts changing other players' saber flags here
+        if (Main_bVerboseNetworking && sithNet_isMulti && thing->type == SITH_THING_PLAYER && thing != sithPlayer_g_pLocalPlayerThing)
+            stdPlatform_Printf("jkCog: %s jkSetFlags(%08x, %x), jkFlags %x\n", JKCOG_LOGNAME(ctx), thing->guid, flags, thing->jkFlags);
         thing->jkFlags |= flags;
         if ( COG_SHOULD_SYNC(ctx) )
         {
@@ -181,6 +196,9 @@ void jkCog_ClearFlags(sithCog *ctx)
     {
         if ( v1 )
         {
+            // Added: with -verboseNetworking, note scripts changing other players' saber flags here
+            if (Main_bVerboseNetworking && sithNet_isMulti && v2->type == SITH_THING_PLAYER && v2 != sithPlayer_g_pLocalPlayerThing)
+                stdPlatform_Printf("jkCog: %s jkClearFlags(%08x, %x), jkFlags %x\n", JKCOG_LOGNAME(ctx), v2->guid, v1, v2->jkFlags);
             v2->jkFlags &= ~v1;
             if ( COG_SHOULD_SYNC(ctx) )
             {
@@ -601,6 +619,10 @@ void jkCog_EnableSaber(sithCog *ctx)
     if ( v2 && v2->type == SITH_THING_PLAYER )
     {
         jkSaber_Enable(v2, a2, a3, a1a);
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: each swing gets a number, which the message below carries.
+        stdComm_WSRelay_NewSwing(v2);
+#endif
         if ( sithMessage_g_outputstream )
             jkDSS_SendJKEnableSaber(v3);
     }

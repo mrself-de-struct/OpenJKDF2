@@ -99,7 +99,7 @@ typedef struct rdModel3
 {
     char filename[32];
     int id;
-    rdGeoset aGeos[4];
+    rdGeoset aGeos[RDMODEL3_MAX_GEOSETS];
     uint32_t numGeos;
     rdMaterial** aMaterials;
     uint32_t sizeMaterials;
@@ -210,6 +210,8 @@ MATH_FUNC int rdModel3_GetMeshMatrix(rdThing *pThing, rdMatrix34 *orient, uint32
 MATH_FUNC int rdModel3_ReplaceMesh(rdModel3 *pModel, int geosetNum, int meshNum, rdMesh *pSrcMesh);
 MATH_FUNC int rdModel3_Draw(rdThing *pThing, rdMatrix34 *pPlacement);
 MATH_FUNC void rdModel3_DrawHNode(rdHierarchyNode *pNode);
+extern int rdModel3_bSkipMaterials; // Added
+int rdModel3_FitSkeleton(rdModel3* pModel, const rdModel3* pOther); // Added
 MATH_FUNC void rdModel3_DrawMesh(rdMesh *pMesh, rdMatrix34 *orient);
 MATH_FUNC FAST_FUNC int rdModel3_DrawFace(rdFace *pFace, int lightFlags);
 

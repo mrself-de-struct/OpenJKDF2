@@ -7,7 +7,20 @@
 #include "Dss/sithDSS.h"
 #include "Dss/sithDSSCog.h"
 #include "Win95/stdComm.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "Gameplay/sithTime.h" // Added: sithTime_g_msecGameTime
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
+#include "stdPlatform.h"
+
+const char* sithDSS_IdToStr(int id); // sithDSS.c
 #include "jk.h"
+
+// Added: the message from another game being handled (its DSS id), 0 between
+// messages, so Hit what you see can tell a hit that another game's message
+// decided (stdComm_WSRelayHits.c).
+int sithComm_msgInProgress = 0;
 
 int sithComm_009a1160 = 0;
 int sithComm_version = 6;
@@ -149,8 +162,21 @@ int sithComm_SendMsgToPlayer(SithMessage *pMessage, int idTo, int outstream, int
             {
                 if ( i != playerThingIdx && (jkPlayer_playerInfos[i].playerNetId == idTo || (idTo == -1 || !idTo) && (jkPlayer_playerInfos[i].flags & 1) != 0) )
                     pMessage->netMsg.field_14 |= 1 << i;
-                if (!i && i != playerThingIdx) {
-                    pMessage->netMsg.field_14 |= 1 << i; // Added: Dedicated server hax
+                // Added: Dedicated server hax. Fixed (from tristamus/OpenJKDF2 4574909d): only for
+                // messages to everyone. A message sent to one other player also got resent to the
+                // host, which then ran it as if meant for it (a Carbonite hit between two joiners
+                // froze the host too).
+#ifdef PLATFORM_DPLAY
+                // Altered: and on any connection, a joiner waits for the host's ack of a message to
+                // everyone even when the host (dedicated) keeps its slot out of the game
+                if ((stdComm_bOpenJkdf2Wire && !i && i != playerThingIdx && (idTo == -1 || !idTo))
+                    || (!sithNet_isServer && i != playerThingIdx && (idTo == -1 || !idTo)
+                        && jkPlayer_playerInfos[i].playerNetId && jkPlayer_playerInfos[i].playerNetId == sithNet_serverNetId))
+#else
+                if (!i && i != playerThingIdx && (idTo == -1 || !idTo))
+#endif
+                {
+                    pMessage->netMsg.field_14 |= 1 << i;
                 }
             }
             if ( !pMessage->netMsg.field_14 )
@@ -280,15 +306,39 @@ LABEL_14:
                             goto LABEL_22;
                         }
                     }
+                    // Added: say when a guaranteed message is dropped as a repeat
+                    if (Main_bVerboseNetworking)
+                        stdPlatform_Printf("sithComm: dropped repeat msg %u (%s) from %x\n", (unsigned)v4,
+                                           sithDSS_IdToStr(v2), (unsigned)sithComm_netMsgTmp.netMsg.idx);
                 }
                 else
                 {
 LABEL_22:
+#ifdef PLATFORM_DPLAY
+                    // Added: Hit what you see: another player's swing, animation and sound
+                    // messages wait until this game draws them at the moment they were sent.
+                    if ( stdComm_WSRelay_HoldForTimeline(&sithComm_netMsgTmp) )
+                        goto LABEL_25;
+#endif
                     if ( v2 < (unsigned int)DSS_MAX )
                     {
                         if ( sithMessage_aTypeFuncs[v2] )
+                        {
+                            sithComm_msgInProgress = v2; // Added
                             sithMessage_aTypeFuncs[v2](&sithComm_netMsgTmp);
+                            sithComm_msgInProgress = 0; // Added
+                        }
                     }
+#ifdef PLATFORM_DPLAY
+                    // Added: Hit what you see's own messages (Platform/Networking/Hits),
+                    // which older games ignore.
+                    else if ( v2 == STDCOMM_WSRELAY_HITS_MSG )
+                    {
+                        sithComm_msgInProgress = v2;
+                        stdComm_WSRelay_ProcessHits(&sithComm_netMsgTmp);
+                        sithComm_msgInProgress = 0;
+                    }
+#endif
                 }
                 goto LABEL_25;
             }
@@ -300,6 +350,20 @@ LABEL_22:
             {
                 goto LABEL_14;
             }
+#ifdef QOL_IMPROVEMENTS
+            // Altered: in a level's first 30 s, a player still finishing the last one
+            // (a slow machine, a browser tab in the background) sends its last
+            // messages from there; it rejoins once it has loaded this level. JK
+            // ejected it ("Ejected from game") for those.
+            if ( sithNet_isServer && sithTime_g_msecGameTime < 30000 )
+            {
+                static uint32_t lastIgnored = 0;
+                if ( lastIgnored != sithComm_netMsgTmp.netMsg.idx )
+                    stdPlatform_Printf("OpenJKDF2: ignoring messages from %x, still on the last level\n", (unsigned)sithComm_netMsgTmp.netMsg.idx);
+                lastIgnored = sithComm_netMsgTmp.netMsg.idx;
+            }
+            else
+#endif
             if ( sithNet_isServer )
                 sithMulti_QuitPlayer(sithComm_netMsgTmp.netMsg.idx);
         }
@@ -309,6 +373,26 @@ LABEL_25:
     }
     sithComm_SyncWithPlayers();
     return v13;
+}
+
+// Added: forget the reliable messages seen from a player who left. Every
+// game numbers its messages from 1, and the next player given the same net id
+// (the lobby hands out the lowest free one) had their first messages taken
+// for repeats of the last player's and dropped, so in a quiet game a quick
+// rejoin timed out with "Server has left game".
+void sithComm_ForgetSender(int idx)
+{
+    if ( !idx )
+        return;
+
+    for (int i = 0; i < 0x80; i++)
+    {
+        if ( sithComm_aMsgPairs[i].idx == (uint32_t)idx )
+        {
+            sithComm_aMsgPairs[i].idx = 0;
+            sithComm_aMsgPairs[i].msgId = 0;
+        }
+    }
 }
 
 void sithMessage_StopProcessMessages()
@@ -382,6 +466,11 @@ void sithComm_ClearMsgTmpBuf()
     _memset(sithComm_MsgTmpBuf, 0, sizeof(sithComm_MsgTmpBuf));
 #endif
     sithComm_idk2 = 0;
+
+    // Added: also forget the messages seen in the last game, for the same
+    // reason as sithComm_ForgetSender: a host's next game reuses net ids.
+    _memset(sithComm_aMsgPairs, 0, sizeof(sithCogMsg_Pair) * 0x80);
+    sithComm_dword_847E84 = 0;
 }
 
 int sithComm_cogMsg_Reset(SithMessage *msg)

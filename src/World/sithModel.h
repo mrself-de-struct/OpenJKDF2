@@ -20,6 +20,7 @@ void sithModel_Shutdown();
 int sithModel_ReadStaticModelsListText(SithWorld *pWorld, int bSkip);
 void sithModel_FreeWorldModels(SithWorld *pWorld);
 rdModel3* sithModel_Load(const char *pName, int bSkipDefault);
+int sithModel_LoadPackOverMod(char *pFpath, rdModel3 *pModel); // Added
 uint32_t sithModel_GetModelMemUsage(rdModel3 *pModel);
 int sithModel_AllocWorldModels(SithWorld *pWorld, int size);
 rdModel3* sithModel_GetModelByIndex(int modelIdx);

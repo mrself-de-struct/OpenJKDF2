@@ -34,6 +34,7 @@
 void jkGuiMultiplayer_Startup();
 void jkGuiMultiplayer_Shutdown();
 int jkGuiMultiplayer_Show();
+int jkGuiMultiplayer_ConnectNow(int bDo); // Added: console "connect" (PLATFORM_DPLAY)
 
 int jkGuiMultiplayer_ShowSynchronizing();
 

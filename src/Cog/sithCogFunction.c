@@ -1204,6 +1204,10 @@ void sithCogFunction_SendTrigger(sithCog *pCog)
             pPlayer = sourceThing->actorParams.pPlayer;
             if ( pPlayer )
             {
+                // Added: with -verboseNetworking, say when a trigger for a player not in the game is dropped
+                if ( !(pPlayer->flags & 1) && Main_bVerboseNetworking )
+                    stdPlatform_Printf("sithCogFunction: SendTrigger %d for player thing %d dropped: not in the game (flags %x)\n",
+                                       sourceType, sourceThing->idx, pPlayer->flags);
                 if ( pPlayer->flags & 1 )
                 {
                     if ( sourceThing == sithPlayer_g_pLocalPlayerThing )

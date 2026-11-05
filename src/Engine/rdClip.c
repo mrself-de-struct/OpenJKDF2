@@ -6,11 +6,12 @@
 
 #include <math.h>
 
-// Added: OpenJones3D uses STD_ARRAYLEN for the clip work-buffer bounds asserts
-// below (RD_ASSERTREL). DF2 has no such macro, so provide it locally.
-#ifndef STD_ARRAYLEN
-#define STD_ARRAYLEN(a) (sizeof(a) / sizeof((a)[0]))
-#endif
+// Added: each pass of a clipper adds at most two vertices per edge it reads, so it stops
+// while two more still fit. A concave or bent face can gain more than one vertex per
+// plane, and ran past the work buffers below and the caller's (rdCache keeps
+// RDCLIP_MAX_VERTICES free per face). The globals' overflow overwrote rdClip_pDestVert,
+// and the copy back to the caller then crashed. Such a face now loses its last edges.
+#define RDCLIP_STOP_IF_FULL(numVerts) if (UNLIKELY((numVerts) > RDCLIP_MAX_VERTICES - 2)) break
 
 #ifndef RDCLIP_WORK_BUFFERS_IN_STACK_MEM
 #define INST_WORKBUFS
@@ -35,9 +36,9 @@ flex_t* pDestRedIVert;
 flex_t* pDestGreenIVert;
 flex_t* pDestBlueIVert;
 
-flex_t workRedIVerts[32];
-flex_t workGreenIVerts[32];
-flex_t workBlueIVerts[32];
+flex_t workRedIVerts[RDCLIP_MAX_VERTICES];
+flex_t workGreenIVerts[RDCLIP_MAX_VERTICES];
+flex_t workBlueIVerts[RDCLIP_MAX_VERTICES];
 #endif // JKM_LIGHTING
 
 #else // RDCLIP_WORK_BUFFERS_IN_STACK_MEM
@@ -50,20 +51,20 @@ flex_t workBlueIVerts[32];
     flex_t* NO_ALIAS pDestRedIVert; \
     flex_t* NO_ALIAS pDestGreenIVert; \
     flex_t* NO_ALIAS pDestBlueIVert; \
-    flex_t workRedIVerts[32]; \
-    flex_t workGreenIVerts[32]; \
-    flex_t workBlueIVerts[32];
+    flex_t workRedIVerts[RDCLIP_MAX_VERTICES]; \
+    flex_t workGreenIVerts[RDCLIP_MAX_VERTICES]; \
+    flex_t workBlueIVerts[RDCLIP_MAX_VERTICES];
 #else
 #define INST_WORKBUFS_MOTS
 #endif
 
 #define INST_WORKBUFS \
     rdVector3* NO_ALIAS pSourceVert; \
-    flex_t workIVerts[32]; \
-    rdVector3 workVerts[32]; \
+    flex_t workIVerts[RDCLIP_MAX_VERTICES]; \
+    rdVector3 workVerts[RDCLIP_MAX_VERTICES]; \
     rdVector3* NO_ALIAS pDestVert; \
     flex_t* NO_ALIAS pDestIVert; \
-    rdVector2 workTVerts[32]; \
+    rdVector2 workTVerts[RDCLIP_MAX_VERTICES]; \
     flex_t* NO_ALIAS pSourceIVert; \
     rdVector2* NO_ALIAS pSourceTVert; \
     rdVector2* NO_ALIAS pDestTVert;
@@ -80,9 +81,9 @@ flex_t workBlueIVerts[32];
 
 #define INST_ARG_COPIES \
     rdClipFrustum _clipFrustum = *pClipFrustum; \
-    rdVector3 _vertices[32];\
-    rdVector2 _tvertices[32];\
-    flex_t _ivertices[32];\
+    rdVector3 _vertices[RDCLIP_MAX_VERTICES];\
+    rdVector2 _tvertices[RDCLIP_MAX_VERTICES];\
+    flex_t _ivertices[RDCLIP_MAX_VERTICES];\
     _memcpy(_vertices, pSourceVert, numVertices*sizeof(rdVector3)); \
     _memcpy(_tvertices, pSourceTVert, numVertices*sizeof(rdVector2)); \
     _memcpy(_ivertices, pSourceIVert, numVertices*sizeof(flex_t)); \
@@ -93,8 +94,8 @@ flex_t workBlueIVerts[32];
 
 #define INST_ARG_COPIES_T \
     rdClipFrustum _clipFrustum = *pClipFrustum; \
-    rdVector3 _vertices[32];\
-    rdVector2 _tvertices[32];\
+    rdVector3 _vertices[RDCLIP_MAX_VERTICES];\
+    rdVector2 _tvertices[RDCLIP_MAX_VERTICES];\
     _memcpy(_vertices, pSourceVert, numVertices*sizeof(rdVector3)); \
     _memcpy(_tvertices, pSourceTVert, numVertices*sizeof(rdVector2)); \
     pClipFrustum = &_clipFrustum; \
@@ -103,7 +104,7 @@ flex_t workBlueIVerts[32];
 
 #define INST_ARG_COPIES_W \
     rdClipFrustum _clipFrustum = *pClipFrustum; \
-    rdVector3 _vertices[32];\
+    rdVector3 _vertices[RDCLIP_MAX_VERTICES];\
     _memcpy(_vertices, pSourceVert, numVertices*sizeof(rdVector3)); \
     pClipFrustum = &_clipFrustum; \
     pSourceVert = _vertices;
@@ -1126,7 +1127,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
                 ++pWorkVertIter;
                 ++numOnScreenVertices;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if ( numOnScreenVertices < 3 ) {
             return numOnScreenVertices;
@@ -1187,7 +1188,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++numOnScreenVertices;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if ( numOnScreenVertices < 3 )
         return numOnScreenVertices;
@@ -1248,7 +1249,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++numOnScreenVertices;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     
     if ( numOnScreenVertices < 3 ) {
@@ -1311,7 +1312,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++numOnScreenVertices;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if ( numOnScreenVertices < 3 ) {
         return numOnScreenVertices;
@@ -1375,7 +1376,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++numOnScreenVertices;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if ( numOnScreenVertices < 3 )
@@ -1429,7 +1430,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++numOnScreenVertices;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if ( numOnScreenVertices < 3 )
@@ -1481,7 +1482,7 @@ int rdClip_Face3W(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
                 ++pWorkVertIter;
                 ++numOnScreenVertices;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if ( numOnScreenVertices < 3 ) {
             return numOnScreenVertices;
@@ -1613,7 +1614,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
                 ++numOnScreenVertices;
                 *pWorkIVertIter++ = *pIVertIter;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if (UNLIKELY(numOnScreenVertices < 3)) {
             return numOnScreenVertices;
@@ -1696,7 +1697,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if (UNLIKELY(numOnScreenVertices < 3))
         return numOnScreenVertices;
@@ -1779,7 +1780,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     
     if (UNLIKELY(numOnScreenVertices < 3)) {
@@ -1864,7 +1865,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if (UNLIKELY(numOnScreenVertices < 3)) {
         return numOnScreenVertices;
@@ -1952,7 +1953,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++pWorkVertIter;
             ++pWorkTVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if (UNLIKELY(numOnScreenVertices < 3))
@@ -2027,7 +2028,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
             ++pWorkVertIter;
             ++pWorkTVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if (UNLIKELY(numOnScreenVertices < 3))
@@ -2101,7 +2102,7 @@ int rdClip_Face3T(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS a
                 ++numOnScreenVertices;
                 *pWorkIVertIter++ = *pIVertIter;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if (UNLIKELY(numOnScreenVertices < 3)) {
             return numOnScreenVertices;
@@ -2266,6 +2267,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
             }
         }
         v7 = v3++;
+        RDCLIP_STOP_IF_FULL(v5); // Added
     }
     if ( v5 < 3 )
         return v5;
@@ -2326,6 +2328,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
             }
         }
         v27 = v28++;
+        RDCLIP_STOP_IF_FULL(v5); // Added
     }
     if ( v5 < 3 )
         return v5;
@@ -2381,6 +2384,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
             }
         }
         v49 = v50++;
+        RDCLIP_STOP_IF_FULL(v5); // Added
     }
     if ( v5 < 3 )
         return v5;
@@ -2442,6 +2446,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
             }
         }
         v73 = v74++;
+        RDCLIP_STOP_IF_FULL(v5); // Added
     }
     if ( v5 < 3 )
         return v5;
@@ -2480,6 +2485,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
             }
         }
         v96 = v97++;
+        RDCLIP_STOP_IF_FULL(v5); // Added
     }
     v101 = pDestVert;
     if ( v5 < 3 )
@@ -2525,6 +2531,7 @@ int rdClip_Face3S(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices,
                 }
             }
             v107 = v108++;
+            RDCLIP_STOP_IF_FULL(v5); // Added
         }
         if ( v5 < 3 )
             return v5;
@@ -2583,8 +2590,8 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
     flex_d_t v61; // st5
     rdVector3 *v63; // eax
     int v64; // ecx
-    int v65; // edi
-    int v66; // esi
+    intptr_t v65; // edi // Altered: int -> intptr_t, it holds two pointers XORed (cut in half on 64-bit)
+    intptr_t v66; // esi // Altered: int -> intptr_t, it holds two pointers XORed (cut in half on 64-bit)
     rdVector3 *v67; // ebx
     flex_t *v68; // eax
     rdVector3 *v69; // edi
@@ -2631,9 +2638,9 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
     flex_d_t v129; // st5
     flex_d_t v130; // st6
     rdVector3 *v132; // ecx
-    int v135; // edi
+    intptr_t v135; // edi // Altered: int -> intptr_t, it holds two pointers XORed (cut in half on 64-bit)
     flex_t* v136; // esi
-    int v137; // edx
+    intptr_t v137; // edx // Altered: int -> intptr_t, it holds two pointers XORed (cut in half on 64-bit)
     flex_t *v138; // edi
     int v139; // ecx
     rdVector3 *v140; // ebx
@@ -2745,7 +2752,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                     ++v6;
                 }
             }
-            RD_ASSERTREL(v151 < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(v151); // Added
             v7 = v4;
             v8 = v5;
             ++v4;
@@ -2826,7 +2833,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                         ++v41;
                     }
                 }
-                RD_ASSERTREL(v152 < STD_ARRAYLEN(workVerts)); // Added
+                RDCLIP_STOP_IF_FULL(v152); // Added
                 v39 = v40;
                 v38 = copy_pSourceIVert;
                 ++v40;
@@ -2909,7 +2916,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                         ++v74;
                     }
                 }
-                RD_ASSERTREL(v153 < STD_ARRAYLEN(workVerts)); // Added
+                RDCLIP_STOP_IF_FULL(v153); // Added
                 v71 = (rdVector3 *)(v73 - 2);
                 v72 = v70;
                 v73 += 3;
@@ -2984,7 +2991,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                             ++v95;
                         }
                     }
-                    RD_ASSERTREL(v154 < STD_ARRAYLEN(workVerts)); // Added
+                    RDCLIP_STOP_IF_FULL(v154); // Added
                     v98 = (rdVector3 *)(v100 - 2);
                     v99 = v97;
                     v100 += 3;
@@ -3047,7 +3054,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                                 *(v119 - 1) = *v155;
                             }
                         }
-                        RD_ASSERTREL(v124 < STD_ARRAYLEN(workVerts)); // Added
+                        RDCLIP_STOP_IF_FULL(v124); // Added
                         v125 = (rdVector3 *)(v126 - 1);
                         v165 = v120;
                         v126 += 3;
@@ -3119,7 +3126,7 @@ int rdClip_Face3GS(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3 *aVertices
                                 v136++;
                             }
                         }
-                        RD_ASSERTREL(v124 < STD_ARRAYLEN(workVerts)); // Added
+                        RDCLIP_STOP_IF_FULL(v124); // Added
                         v143 = (rdVector3 *)(v144 - 1);
                         v166 = v156++;
                         v144 += 3;
@@ -3264,7 +3271,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
                 ++pWorkTVertIter;
                 ++numOnScreenVertices;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if ( numOnScreenVertices < 3 ) {
             return numOnScreenVertices;
@@ -3337,7 +3344,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if ( numOnScreenVertices < 3 )
         return numOnScreenVertices;
@@ -3409,7 +3416,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     
     if ( numOnScreenVertices < 3 ) {
@@ -3484,7 +3491,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
             ++pWorkTVertIter;
             ++pWorkVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
     if ( numOnScreenVertices < 3 ) {
         return numOnScreenVertices;
@@ -3562,7 +3569,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
             ++pWorkVertIter;
             ++pWorkTVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if ( numOnScreenVertices < 3 )
@@ -3631,7 +3638,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
             ++pWorkVertIter;
             ++pWorkTVertIter;
         }
-        RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+        RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
     }
 
     if ( numOnScreenVertices < 3 )
@@ -3696,7 +3703,7 @@ int rdClip_Face3GT(const rdClipFrustum* NO_ALIAS pFrustrum, rdVector3* NO_ALIAS 
                 ++pWorkTVertIter;
                 ++numOnScreenVertices;
             }
-            RD_ASSERTREL(numOnScreenVertices < STD_ARRAYLEN(workVerts)); // Added
+            RDCLIP_STOP_IF_FULL(numOnScreenVertices); // Added
         }
         if ( numOnScreenVertices < 3 ) {
             return numOnScreenVertices;
@@ -3861,6 +3868,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
             pfVar24 = pfVar22;
             prVar18 = prVar18 + 1;
             local_1c = pfVar25;
+            RDCLIP_STOP_IF_FULL(local_30); // Added
         } while (local_4 != 0);
     }
     local_4 = local_30;
@@ -3969,6 +3977,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
             pfVar26 = pfVar22;
             prVar18 = prVar18 + 1;
             local_1c = pfVar25;
+            RDCLIP_STOP_IF_FULL(local_30); // Added
         } while (local_4 != 0);
     }
     uVar15 = local_30;
@@ -4089,6 +4098,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
                 prVar17 = pDestVert;
                 prVar18 = pSourceVert;
                 local_1c = pfVar21;
+                RDCLIP_STOP_IF_FULL(local_30); // Added
             } while (uVar15 != 0);
         }
         pSourceVert = prVar18;
@@ -4206,6 +4216,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
                     pfVar22 = pDestGreenIVert;
                     prVar18 = pDestVert;
                     local_1c = pfVar21;
+                    RDCLIP_STOP_IF_FULL(local_30); // Added
                 } while (local_4 != 0);
             }
             pDestVert = prVar18;
@@ -4300,6 +4311,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
                         pfVar25 = pDestGreenIVert;
                         prVar20 = pDestVert;
                         local_1c = pfVar21;
+                        RDCLIP_STOP_IF_FULL(local_30); // Added
                     } while (local_4 != 0);
                 }
                 pDestVert = prVar20;
@@ -4399,6 +4411,7 @@ int rdClip_Face3GSRGB(const rdClipFrustum* NO_ALIAS frustum,rdVector3 *aVertices
                             prVar17 = pDestVert;
                             prVar18 = pSourceVert;
                             local_1c = pfVar23;
+                            RDCLIP_STOP_IF_FULL(local_30); // Added
                         } while (numVertices != 0);
                     }
                     pSourceVert = prVar18;
@@ -4606,6 +4619,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
             local_40 = local_24;
             local_34 = pfVar30;
             local_24 = local_24 + 1;
+            RDCLIP_STOP_IF_FULL(local_44); // Added
         } while (local_18 != 0);
     }
     local_c = (flex_t *)local_44;
@@ -4728,6 +4742,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
                 prVar28 = prVar28 + 1;
                 local_40 = prVar20;
                 local_34 = pfVar30;
+                RDCLIP_STOP_IF_FULL(local_44); // Added
             } while (local_c != (flex_t *)0x0);
         }
         local_4 = local_44;
@@ -4861,6 +4876,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
                 prVar25 = prVar32;
                 prVar19 = pDestVert;
                 local_34 = pfVar23;
+                RDCLIP_STOP_IF_FULL(local_44); // Added
             } while (local_4 != 0);
         }
         pDestVert = prVar19;
@@ -4999,6 +5015,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
                 prVar18 = pSourceVert;
                 local_34 = pfVar24;
                 local_28 = prVar31;
+                RDCLIP_STOP_IF_FULL(local_44); // Added
             } while (local_8 != 0);
         }
         pSourceVert = prVar18;
@@ -5107,6 +5124,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
                     prVar33 = prVar28 + 1;
                     local_34 = pfVar34;
                     local_28 = prVar28;
+                    RDCLIP_STOP_IF_FULL(local_44); // Added
                 } while (numVertices != 0);
             }
             numVertices = local_44;
@@ -5218,6 +5236,7 @@ int rdClip_Face3GTRGB(const rdClipFrustum* NO_ALIAS pFrustum,rdVector3 *paVertic
                         prVar33 = prVar28 + 1;
                         local_34 = pfVar34;
                         local_28 = prVar28;
+                        RDCLIP_STOP_IF_FULL(local_44); // Added
                     } while (numVertices != 0);
                 }
                 if ((intptr_t)local_44 < 3) {

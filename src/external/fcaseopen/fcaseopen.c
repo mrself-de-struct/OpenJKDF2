@@ -1,5 +1,11 @@
 #include "fcaseopen.h"
 
+#if defined(_WIN32)
+// chdir() lives in <direct.h> (and MinGW's <unistd.h>); newer MinGW headers
+// no longer bring it in indirectly, and GCC 14+ rejects the implicit call.
+#include <direct.h>
+#endif
+
 #if !defined(_WIN32)
 #include <stdlib.h>
 #include <string.h>

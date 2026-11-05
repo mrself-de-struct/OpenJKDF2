@@ -29,9 +29,13 @@
 #include "Platform/stdControl.h"
 #include "Platform/Common/stdUpdater.h"
 #include "Gameplay/sithPlayerActions.h"
+
 #include "Main/sithCvar.h"
 #include "Dw/dwConsoleAssets.h"
 #include "../jk.h"
+#ifdef ARCH_WASM
+#include <SDL3/SDL.h>
+#endif
 
 #ifdef PLATFORM_DROIDWORKS
 #include "Dw/dwGuiScreen.h"
@@ -61,6 +65,7 @@ char jkQuakeConsole_chatStrSaved[JKQUAKECONSOLE_CHAT_LEN+16];
 char jkQuakeConsole_chatStr[JKQUAKECONSOLE_CHAT_LEN+16];
 int32_t jkQuakeConsole_chatStrPos = 0;
 int32_t jkQuakeConsole_scrollPos = 0;
+static int jkQuakeConsole_pageLines = 10; // Added: lines Page Up/Down scroll (a screenful less one)
 uint32_t jkQuakeConsole_realLines = 0;
 uint32_t jkQuakeConsole_tabIdx = 0;
 int jkQuakeConsole_bHasTabbed = 0;
@@ -187,6 +192,16 @@ void jkQuakeConsole_Startup()
     jkQuakeConsole_bInitted = 1;
 }
 
+// Added: closes the console as its key does (console "connect", which then goes to the menus).
+void jkQuakeConsole_Close()
+{
+    if (!jkQuakeConsole_bOpen) return;
+    jkQuakeConsole_bOpen = 0;
+    if (!Main_bDroidWorks)
+        stdControl_HideSystemKeyboard();
+    stdControl_SetActivation(1);
+}
+
 void jkQuakeConsole_Shutdown()
 {
     stdPlatform_Printf("OpenJKDF2: %s\n", __func__);
@@ -255,6 +270,7 @@ void jkQuakeConsole_Render()
         fontHeight = 1.0;
     }
     int maxVisibleLines = (int)((screenH / 2) / fontHeight)-2;
+    jkQuakeConsole_pageLines = maxVisibleLines > 2 ? maxVisibleLines - 1 : 1; // Added
 
     // Show update text over everything
     if (jkQuakeConsole_bShowUpdateText || jkQuakeConsole_bClickedUpdate) {
@@ -557,13 +573,10 @@ int jkQuakeConsole_AutocompleteTemplates()
 
 void jkQuakeConsole_ExecuteCommand(const char* pCmd)
 {
-    if ( jkHud_dword_552D10 == -1 && sithNet_isMulti )
-    {
-        _sprintf(std_g_genBuffer, "You say, '%s'", pCmd);
-        jkDev_DebugLog(std_g_genBuffer);
-        sithMulti_SendChat(pCmd, -1, playerThingIdx);
-    }
-    else if ( !jkDev_TryCommand(pCmd) )
+    // Altered: the console always runs commands. It used to follow the chat box's last mode
+    // (jkHud_dword_552D10), so after chatting once in multiplayer ("Send to all"), every
+    // console command was sent as chat instead.
+    if ( !jkDev_TryCommand(pCmd) )
     {
 #ifdef PLATFORM_DROIDWORKS
         // Route unmatched commands through the DW cheat matcher
@@ -861,7 +874,16 @@ int jkQuakeConsole_WmHandler(HWND a1, UINT msg, WPARAM wParam, HWND a4, LRESULT 
             if (wParam == VK_SHIFT || wParam == VK_LSHIFT || wParam == VK_RSHIFT) {
                 jkQuakeConsole_bShiftHeld = 1;
             }
+#ifdef ARCH_WASM
+            // Added: in the browser, Ctrl+Shift+` opens the console and ` or Esc
+            // closes it. Shift is the default Run key and ` the default Scores
+            // key, so Shift+` and Shift+Esc opened it mid-match by accident, and
+            // the game ignores every bind while it's open.
+            else if (!repeats && (jkQuakeConsole_bOpen ? (wParam == VK_OEM_3 || wParam == VK_ESCAPE)
+                                                       : (wParam == VK_OEM_3 && jkQuakeConsole_bShiftHeld && (SDL_GetModState() & SDL_KMOD_CTRL))))
+#else
             else if ((wParam == VK_OEM_3 || (wParam == VK_ESCAPE && jkQuakeConsole_bShiftHeld)) && !repeats && (!sithNet_isMulti || jkQuakeConsole_bShiftHeld)) // `/~ key
+#endif
             {
                 jkQuakeConsole_bOpen = !jkQuakeConsole_bOpen;
                 // Don't toggle SDL text input with the
@@ -882,6 +904,12 @@ int jkQuakeConsole_WmHandler(HWND a1, UINT msg, WPARAM wParam, HWND a4, LRESULT 
                 stdControl_SetActivation(!jkQuakeConsole_bOpen);
                 *a5 = 1;
                 return 1;
+            }
+            // Added: Page Up/Down scroll the open console like the mouse wheel (clamped when it's drawn)
+            else if (jkQuakeConsole_bOpen && (wParam == VK_PRIOR || wParam == VK_NEXT)) {
+                jkQuakeConsole_scrollPos += (wParam == VK_PRIOR) ? jkQuakeConsole_pageLines : -jkQuakeConsole_pageLines;
+                if (jkQuakeConsole_scrollPos < 0)
+                    jkQuakeConsole_scrollPos = 0;
             }
             else if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_DELETE) { // 
                 jkQuakeConsole_SendInput(wParam, 0);

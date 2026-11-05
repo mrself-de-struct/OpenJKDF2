@@ -10,6 +10,7 @@
 #include "Win95/stdDisplay.h"
 #include "Platform/stdControl.h"
 #include "Win95/Window.h"
+#include "Win95/stdComm.h" // Added: stdComm_DPlay_Idle
 #include "Win95/stdGdi.h"
 #include "Win95/stdSound.h"
 #include "General/stdString.h"
@@ -17,6 +18,7 @@
 #include "Gui/jkGUI.h"
 #include "stdPlatform.h"
 #include "jk.h"
+#include "Main/jkQuakeConsole.h"
 #include "types.h"
 
 #include <math.h>
@@ -38,10 +40,24 @@ int32_t jkGuiRend_menuNestDepth = 0;
 // loops know to unwind before the new state is entered. Cleared once the state
 // change is actually applied at depth 0, or by the menu loop itself.
 int32_t jkGuiRend_bStateChangePending = 0;
+#ifdef QOL_IMPROVEMENTS
+// Added: the element the Esc key is clicking right now, or NULL. See
+// jkGuiRend_IsEscapeKeyClick.
+static jkGuiElement *jkGuiRend_pEscapeKeyClicked = NULL;
+#endif
 static int32_t jkGuiRend_bIsSurfaceValid = 0;
 static int32_t jkGuiRend_bInitted = 0;
 static int32_t jkGuiRend_bOpen = 0;
 static int32_t jkGuiRend_HandlerIsSet = 0;
+#ifdef QOL_IMPROVEMENTS
+// Added: whether pElement is being clicked by the Esc key rather than by the
+// mouse, so a screen's Cancel button can treat Esc differently.
+int jkGuiRend_IsEscapeKeyClick(jkGuiElement *pElement)
+{
+    return pElement && pElement == jkGuiRend_pEscapeKeyClicked;
+}
+#endif
+
 int jkGuiRend_IsMenuActive(void)
 {
     return jkGuiRend_HandlerIsSet > 0;
@@ -326,6 +342,12 @@ void jkGuiRend_MenuSetEscapeKeyShortcutElement(jkGuiMenu *menu, jkGuiElement *el
     menu->pEscapeKeyShortcutElement = element;
 }
 
+// Added: the menu on screen (the innermost one), or NULL. For console "connect".
+jkGuiMenu* jkGuiRend_GetActiveMenu(void)
+{
+    return jkGuiRend_activeMenu;
+}
+
 int32_t jkGuiRend_DisplayAndReturnClicked(jkGuiMenu *menu)
 {
     int32_t msgret; // eax
@@ -389,6 +411,11 @@ int32_t jkGuiRend_DisplayAndReturnClicked(jkGuiMenu *menu)
             if ( menu->idkFunc && !menu->lastClicked )
                 menu->idkFunc(menu);
         }
+#ifdef PLATFORM_DPLAY
+        // Added: the game doesn't receive while a menu is up (e.g. the 30 s stats
+        // screen), and the relay server drops clients silent for 20 s.
+        stdComm_DPlay_Idle();
+#endif
     }
     jkGuiRend_sub_50FDB0();
     --jkGuiRend_menuNestDepth;
@@ -1861,7 +1888,14 @@ LABEL_47:
                     }
                 }
             }
+#ifdef QOL_IMPROVEMENTS
+            if ( wParam == VK_ESCAPE )
+                jkGuiRend_pEscapeKeyClicked = v8; // Added: see jkGuiRend_IsEscapeKeyClick
+#endif
             jkGuiRend_InvokeClicked(v8, jkGuiRend_activeMenu, v8->rect.x + 1, v8->rect.y + 1, 0);
+#ifdef QOL_IMPROVEMENTS
+            jkGuiRend_pEscapeKeyClicked = NULL; // Added
+#endif
             jkGuiRend_lastKeyScancode = lParam & 0xFF0000;
             return 1;
 
@@ -3018,6 +3052,16 @@ void jkGuiRend_UpdateController()
         }
     }
 
+#ifdef QUAKE_CONSOLE
+    // Altered: the open console owns text input; this turned it off every frame on a menu
+    // whose focus isn't a text box (the player list on the startup player screen)
+    if (jkQuakeConsole_bOpen) {
+        keyboardShowedLastUpdate = 0;
+        currentKeyboardFocusedElement = NULL;
+    }
+    else
+#endif
+    {
     if (!stdControl_IsSystemKeyboardShowing() || jkGuiRend_activeMenu->focusedElement != currentKeyboardFocusedElement) {
         stdControl_HideSystemKeyboard();
         keyboardShowedLastUpdate = 0;
@@ -3037,6 +3081,7 @@ void jkGuiRend_UpdateController()
         stdControl_HideSystemKeyboard();
         keyboardShowedLastUpdate = 0;
         currentKeyboardFocusedElement = NULL;
+    }
     }
 
     if (jkGuiRend_activeMenu != jkGuiRend_lastActiveMenu) {

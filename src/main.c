@@ -1,11 +1,15 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#if defined(WIN64_STANDALONE) && defined(SDL2_RENDER)
+#include "SDL2_helper.h" // Added: for SDL_GetHintBoolean (GCC 14+ rejects implicit declarations)
+#endif
 #if (defined(WIN32) || defined(TARGET_IOS)) && defined(SDL2_RENDER)
 #include <SDL_main.h>
 #endif
 
 #include "hook.h"
+#include "Platform/Common/stdLog.h" // Added
 #include "jk.h"
 #include "types.h"
 
@@ -641,7 +645,7 @@ int main(int argc, char** argv)
         AllocConsole();
         freopen_s(&fp, "CONIN$", "r", stdin);
         freopen_s(&fp, "CONOUT$", "w", stdout);
-        freopen_s(&fp, "CONOUT$", "w", stdout);
+        freopen_s(&fp, "CONOUT$", "w", stderr); // Altered: was stdout twice, so stderr went nowhere
     }
 
     int can_has_crashdumps = 1;
@@ -729,6 +733,10 @@ int main(int argc, char** argv)
     PHYSFS_permitSymbolicLinks(0);
 #endif
 
+    // Added: log file (-log, -logFile <file>; on by default with -dedicatedServer), before anything else prints.
+    // It stays open across the in-process restarts below.
+    stdLog_StartFromArgs(argc, argv);
+
     getcwd(openjkdf2_aOrigCwd, sizeof(openjkdf2_aOrigCwd));
 
     openjkdf2_bOrigWasDF2 = 1;
@@ -815,7 +823,7 @@ int main(int argc, char** argv)
     }
 #endif
 
-    return 1;
+    return 0; // Altered: a normal exit is a success (was 1: systemd counted stopping a dedicated server as a failure)
 }
 
 #ifdef LINUX
@@ -879,7 +887,17 @@ void print_backtrace(void)
     }
     full_write(STDERR_FILENO, end, strlen(end));
 
-    char* crash_print = (char*)malloc(1024);
+    // Altered: was a fixed 1024 bytes, which a deep backtrace overran (abort in the
+    // fortified strcat, so crash.log was never written)
+    size_t crash_len = strlen(start) + strlen(end) + 1;
+    for (i = 1; i < bt_size; i++)
+        crash_len += strlen(bt_syms[i]) + 1;
+    char* crash_print = (char*)malloc(crash_len);
+    if (!crash_print)
+    {
+        free(bt_syms);
+        return;
+    }
     strcpy(crash_print, start);
     for (i = 1; i < bt_size; i++) {
         strcat(crash_print, bt_syms[i]);
@@ -908,6 +926,7 @@ void print_backtrace(void)
 void crash_handler_basic(int sig) 
 {
     print_backtrace();
+    stdLog_EmergencyWrite("[log] crashed (SIGSEGV), backtrace above"); // Added: also into the log file
     signal(SIGSEGV, SIG_DFL); // Pass error to OS; MacOS has nicer crash diagnostics
 }
 

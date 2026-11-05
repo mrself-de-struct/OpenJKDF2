@@ -11,6 +11,8 @@
 #define jkGuiMain_FreeCutscenes_ADDR (0x004105B0)
 
 void jkGuiMain_Show();
+int jkGuiMain_ConnectNow(int bDo); // Added: console "connect" (PLATFORM_DPLAY)
+int jkGuiMain_CanSwitchPlayer(void); // Added: console "profile" (PLATFORM_DPLAY)
 void jkGuiMain_ShowCutscenes();
 void jkGuiMain_Startup();
 void jkGuiMain_Shutdown();

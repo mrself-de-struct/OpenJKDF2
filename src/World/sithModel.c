@@ -5,6 +5,7 @@
 #include "World/sithWorld.h"
 #include "General/stdConffile.h"
 #include "stdPlatform.h"
+#include "Main/jkRes.h"
 #include "jk.h"
 
 static tHashTable* sithModel_hashtable;
@@ -86,6 +87,42 @@ void sithModel_FreeWorldModels(SithWorld *pWorld)
     pWorld->sizeModels = 0;
 }
 
+// Added: a graphics pack's copy of a model (packaging/wasm/index.html,
+// OPTIONAL_PACKS), where the copy that opens first is another one, as a
+// gameplay mod's does: mods load ahead of packs, so that a pack can't change
+// a model's skeleton under a mod's puppets, keyframes and scripts. The pack's
+// copy loads instead when it fits that skeleton (rdModel3_FitSkeleton), as
+// the HD pack's Kyle, skins and weapons fit SBX's. 1 when it loaded. The
+// multiplayer character screen's preview loads its models this way too.
+int sithModel_LoadPackOverMod(char *pFpath, rdModel3 *pModel)
+{
+    rdModel3 modModel;
+    int bLoaded, bFits;
+
+    if ( !jkRes_IsPackOutranked(pFpath) )
+        return 0;
+
+    // The other copy's nodes and meshes, without loading its materials. A
+    // copy that doesn't load is left as it is, as rdModel3_LoadEntry's
+    // callers do.
+    rdModel3_bSkipMaterials = 1;
+    bLoaded = rdModel3_LoadEntry(pFpath, &modModel);
+    rdModel3_bSkipMaterials = 0;
+    if ( !bLoaded )
+        return 0;
+
+    jkRes_SetPackFilter(JKRES_PACKS_ONLY, pFpath);
+    bLoaded = rdModel3_LoadEntry(pFpath, pModel);
+    jkRes_SetPackFilter(JKRES_PACKS_ALL, NULL);
+    bFits = bLoaded && rdModel3_FitSkeleton(pModel, &modModel);
+    stdPlatform_Printf("OpenJKDF2: %s: %s the graphics pack's copy (%d nodes) over a mod's (%d)\n",
+                       pFpath, bFits ? "using" : "not using", bLoaded ? (int)pModel->numHNodes : 0, (int)modModel.numHNodes);
+    rdModel3_FreeEntryGeometryOnly(&modModel);
+    if ( bLoaded && !bFits )
+        rdModel3_FreeEntryGeometryOnly(pModel);
+    return bFits;
+}
+
 rdModel3* sithModel_Load(const char *pName, int bSkipDefault)
 {
     rdModel3 *model;
@@ -108,7 +145,7 @@ rdModel3* sithModel_Load(const char *pName, int bSkipDefault)
 
     SITH_ASSERTREL(_strlen(pName) < sizeof(model_fpath)); // Added
     _sprintf(model_fpath, "%s%c%s", "3do", '\\', pName);
-    if ( !rdModel3_LoadEntry(model_fpath, model) )
+    if ( !sithModel_LoadPackOverMod(model_fpath, model) && !rdModel3_LoadEntry(model_fpath, model) ) // Added: sithModel_LoadPackOverMod
     {
         if ( !bSkipDefault ) {
             stdPlatform_Printf("OpenJKDF2: %s: rdModel3_LoadEntry failed for `%s`, loading dflt.3do!\n", __func__, pName); // Added

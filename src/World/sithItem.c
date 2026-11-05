@@ -7,6 +7,9 @@
 #include "Engine/sithCollision.h"
 #include "World/jkPlayer.h"
 #include "World/sithSector.h"
+#include "World/sithSurface.h"
+#include "World/sithWorld.h"
+#include "Primitives/rdMath.h"
 #include "Dss/sithDSSThing.h"
 #include "Main/Main.h"
 #include "jk.h"
@@ -28,11 +31,43 @@ int sithItem_PlayerCollisionHandler(SithThing *pItem, SithThing *pPlayer, SithCo
     return 0;
 }
 
+// Added: a line-of-sight ray that ends exactly on a solid surface counts as
+// hitting it, so an item whose centre sits exactly on a floor (the thermal
+// detonators in JK's m2 and m10, and in most MotS deathmatch maps) fails
+// sithCollision_HasLOS from almost everywhere. That blocks pickups and Force
+// Pull's target. Move such items just off the surface. Running this twice
+// doesn't move them again.
+#define SITHITEM_SURFACE_EPSILON (0.0001)
+#define SITHITEM_SURFACE_NUDGE (0.001)
+static void sithItem_NudgeOffSurfaces(SithThing *pThing)
+{
+    SithSector* pSector = pThing->sector;
+    if (!pSector || !sithWorld_g_pCurrentWorld || !sithWorld_g_pCurrentWorld->aVertices)
+        return;
+
+    for (int i = 0; i < pSector->numSurfaces; i++)
+    {
+        SithSurface* pSurface = &pSector->surfaces[i];
+        rdFace* pFace = &pSurface->surfaceInfo.face;
+
+        // The same surfaces sithCollision_HasLOS stops at
+        if (pSurface->pAdjoin ? (pSurface->pAdjoin->flags & SITHSURF_ADJOIN_VISIBLE) : !(pSurface->flags & SITH_SURFACE_HAS_COLLISION))
+            continue;
+        if (!pFace->numVertices || !pFace->vertexPosIdx)
+            continue;
+
+        flex_t dist = rdMath_DistancePointToPlane(&pThing->position, &pFace->normal, &sithWorld_g_pCurrentWorld->aVertices[pFace->vertexPosIdx[0]]);
+        if (dist > -SITHITEM_SURFACE_EPSILON && dist < SITHITEM_SURFACE_EPSILON)
+            rdVector_ScaleAdd3Acc(&pThing->position, &pFace->normal, SITHITEM_SURFACE_NUDGE - dist);
+    }
+}
+
 void sithItem_Initialize(SithThing *pThing)
 {
 #ifdef JKM_PARAMS
     pThing->itemParams.respawnFactor = 0.9;
 #endif
+    sithItem_NudgeOffSurfaces(pThing); // Added
     rdVector_Copy3(&pThing->itemParams.position, &pThing->position);
     pThing->itemParams.sector = pThing->sector;
 }

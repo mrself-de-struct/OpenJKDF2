@@ -4,6 +4,9 @@
 #include "Win95/Window.h"
 #include "stdPlatform.h"
 #include "General/stdMath.h"
+#include "Main/sithCvar.h"
+
+#include <math.h>
 
 #include "jk.h"
 
@@ -237,6 +240,164 @@ const stdControlDikStrToNum stdControl_aDikNumToStr[JK_TOTAL_NUM_KEYS] =
   { KEY_MOUSE_B5,       "KEY_MOUSE_B5" }
 #endif
 };
+
+// Added: mouse tuning, the m_* cvars (game folder's openjkdf2_cvars.json, so per machine,
+// on top of each profile's per-axis sensitivity slider). Defaults leave the mouse as it was.
+int stdControl_mouseSmooth = 0;              // 0 off, 1 JK.EXE's, 2 averaged over m_smoothMs
+int stdControl_mouseSmoothMs = 20;
+flex_t stdControl_mouseSensitivity = 1.0;
+flex_t stdControl_mouseYawScale = 1.0;
+flex_t stdControl_mousePitchScale = 1.0;
+flex_t stdControl_mouseAccel = 0.0;          // extra gain per count/ms of mouse speed
+flex_t stdControl_mouseAccelOffset = 0.0;    // speed (counts/ms) where acceleration starts
+flex_t stdControl_mouseAccelMax = 0.0;       // largest gain, 0 = no limit
+int stdControl_bMouseSystemAccel = 0;        // let the OS apply its pointer speed/acceleration
+int stdControl_bMouseDebug = 0;
+
+// Added: this read's processed mouse movement, in counts, fractions kept
+static flex_d_t stdControl_aMouseAxisF[2];
+static int stdControl_bMouseAxisF = 0;
+
+void stdControl_StartupCvars()
+{
+    sithCvar_RegisterInt("m_smooth",            0,   &stdControl_mouseSmooth,        CVARFLAG_GLOBAL);
+    sithCvar_RegisterInt("m_smoothMs",          20,  &stdControl_mouseSmoothMs,      CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_sensitivity",      1.0, &stdControl_mouseSensitivity,   CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_yawScale",         1.0, &stdControl_mouseYawScale,      CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_pitchScale",       1.0, &stdControl_mousePitchScale,    CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_accel",            0.0, &stdControl_mouseAccel,         CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_accelOffset",      0.0, &stdControl_mouseAccelOffset,   CVARFLAG_GLOBAL);
+    sithCvar_RegisterFlex("m_accelMax",         0.0, &stdControl_mouseAccelMax,      CVARFLAG_GLOBAL);
+    sithCvar_RegisterBool("m_systemAccel",      0,   &stdControl_bMouseSystemAccel,  CVARFLAG_GLOBAL);
+    sithCvar_RegisterBool("m_debug",            0,   &stdControl_bMouseDebug,        CVARFLAG_GLOBAL);
+}
+
+// Added: turns one read's mouse movement (counts, may have fractions) into the mouse axes:
+// acceleration, smoothing, then m_sensitivity and the yaw/pitch scales.
+void stdControl_ProcessMouse(flex_d_t dx, flex_d_t dy, uint32_t dtMs)
+{
+    static flex_d_t remX = 0.0, remY = 0.0;
+    static flex_d_t jkRemX = 0.0, jkRemY = 0.0;
+    static int jkLastX = 0, jkLastY = 0;
+    static flex_d_t histX[64], histY[64];
+    static uint32_t histMs[64];
+    static int histNext = 0, histCount = 0;
+
+    flex_d_t rawX = dx, rawY = dy;
+    flex_d_t dt = dtMs ? (flex_d_t)dtMs : 1.0;
+    flex_d_t gain = 1.0;
+
+    if (stdControl_mouseAccel > 0.0 && (dx != 0.0 || dy != 0.0))
+    {
+        flex_d_t speed = sqrt(dx*dx + dy*dy) / dt - stdControl_mouseAccelOffset;
+        if (speed > 0.0)
+        {
+            gain = 1.0 + stdControl_mouseAccel * speed;
+            if (stdControl_mouseAccelMax > 0.0 && gain > stdControl_mouseAccelMax)
+                gain = stdControl_mouseAccelMax;
+            dx *= gain;
+            dy *= gain;
+        }
+    }
+
+    if (dtMs > 250)
+    {
+        // a menu or a hitch, don't drag old movement along
+        histCount = 0;
+        jkLastX = jkLastY = 0;
+    }
+
+    if (stdControl_mouseSmooth == 1)
+    {
+        // JK.EXE (1.01 0x42f1d8): DirectInput's whole counts; under 25 ms between reads this read
+        // and the last are averaged with an arithmetic shift, so a lone +1 count is lost and a
+        // lone -1 counts twice. Kept as is.
+        int ix, iy;
+        jkRemX += dx;
+        jkRemY += dy;
+        ix = (int)jkRemX;
+        iy = (int)jkRemY;
+        jkRemX -= ix;
+        jkRemY -= iy;
+        int outX = ix, outY = iy;
+        if (dtMs < 25)
+        {
+            outX = (int)floor((ix + jkLastX) / 2.0);
+            outY = (int)floor((iy + jkLastY) / 2.0);
+        }
+        jkLastX = ix;
+        jkLastY = iy;
+        dx = outX;
+        dy = outY;
+    }
+    else if (stdControl_mouseSmooth == 2 && stdControl_mouseSmoothMs > 0)
+    {
+        // average speed over the last m_smoothMs, this read included
+        histX[histNext] = dx;
+        histY[histNext] = dy;
+        histMs[histNext] = dtMs;
+        histNext = (histNext + 1) % 64;
+        if (histCount < 64)
+            histCount++;
+
+        flex_d_t sumX = 0.0, sumY = 0.0;
+        uint32_t sumMs = 0;
+        for (int i = 0; i < histCount && sumMs < (uint32_t)stdControl_mouseSmoothMs; i++)
+        {
+            int idx = (histNext - 1 - i + 64) % 64;
+            sumX += histX[idx];
+            sumY += histY[idx];
+            sumMs += histMs[idx];
+        }
+        if (sumMs)
+        {
+            dx = sumX * (flex_d_t)dtMs / (flex_d_t)sumMs;
+            dy = sumY * (flex_d_t)dtMs / (flex_d_t)sumMs;
+        }
+    }
+    else
+    {
+        histCount = 0;
+    }
+
+    dx *= stdControl_mouseSensitivity * stdControl_mouseYawScale;
+    dy *= stdControl_mouseSensitivity * stdControl_mousePitchScale;
+
+    stdControl_aMouseAxisF[0] = dx;
+    stdControl_aMouseAxisF[1] = dy;
+    stdControl_bMouseAxisF = 1;
+
+    // whole counts for the non-raw axis reads, the remainder carried over
+    remX += dx;
+    remY += dy;
+    stdControl_aAxisStates[AXIS_MOUSE_X] = (int)remX;
+    stdControl_aAxisStates[AXIS_MOUSE_Y] = (int)remY;
+    remX -= (int)remX;
+    remY -= (int)remY;
+
+    if (stdControl_bMouseDebug && (rawX != 0.0 || rawY != 0.0))
+        stdPlatform_Printf("mouse: %3u ms  raw %7.2f %7.2f  gain %5.2f  out %7.2f %7.2f\n", dtMs, rawX, rawY, gain, dx, dy);
+}
+
+// Added: ReadAxisRaw for the mouse with the fractions ProcessMouse keeps
+flex_t stdControl_ReadAxisRawF(int axisNum)
+{
+    if ((axisNum != AXIS_MOUSE_X && axisNum != AXIS_MOUSE_Y) || !stdControl_bMouseAxisF)
+        return (flex_t)stdControl_ReadAxisRaw(axisNum);
+
+    if ( !stdControl_bControlsActive )
+        return 0.0;
+    if ( (stdControl_aAxes[axisNum].flags & 2) == 0 )
+        return 0.0;
+    flex_d_t result = stdControl_aMouseAxisF[axisNum - AXIS_MOUSE_X];
+    if ( result == 0.0 )
+        return 0.0;
+#ifdef QOL_IMPROVEMENTS
+    sithControl_msIdle = 0;
+#endif
+    stdControl_bControlsIdle = 0;
+    return (flex_t)result;
+}
 
 void stdControl_Reset()
 {

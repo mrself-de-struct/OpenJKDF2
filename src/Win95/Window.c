@@ -14,6 +14,7 @@
 #include "Devices/sithConsole.h"
 #include "Platform/wuRegistry.h"
 #include "Main/jkQuakeConsole.h"
+#include "Main/jkServer.h" // Added
 #include "Main/jkTouchControls.h"
 
 #include "Dw/dwMain.h"
@@ -36,12 +37,14 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
+#include <signal.h> // Added
 #else
 #include <conio.h>
 #endif
 //#include <stropts.h>
 
 #include "SDL2_helper.h"
+#include "Platform/Common/stdLog.h" // Added
 
 #ifdef TARGET_IOS
 #include "Platform/iOS/iosAngle.h"
@@ -383,6 +386,8 @@ SDL_GLContext glWindowContext;
 
 int Window_lastXRel = 0;
 int Window_lastYRel = 0;
+float Window_mouseXRelF = 0.0f;
+float Window_mouseYRelF = 0.0f;
 int Window_lastSampleTime = 0;
 int Window_lastSampleMs = 0;
 int Window_bMouseLeft = 0;
@@ -449,8 +454,9 @@ void Window_HandleMouseMove(SDL_MouseMotionEvent *event)
     // milliseconds to keep Window_lastSampleTime's units (set from SDL_GetTicks()).
     Window_lastSampleMs = (int)(event->timestamp / 1000000) - Window_lastSampleTime;
     //Window_lastSampleTime = event->timestamp;
-    Window_lastXRel += (int)event->xrel;
-    Window_lastYRel += (int)event->yrel;
+    // Altered: was Window_lastXRel += (int)event->xrel, which dropped the fractions
+    Window_mouseXRelF += event->xrel;
+    Window_mouseYRelF += event->yrel;
 
     Window_msg_main_handler(g_hWnd, WM_MOUSEMOVE, 0, pos);
 }
@@ -637,6 +643,34 @@ int my_kbhit() {
     return num;
 }
 #else
+// Added: the terminal settings from before my_kbhit changed them, put back when
+// the game exits or is stopped by a signal (the shell was left without echo)
+static struct termios Window_origTerm;
+static int Window_bTermChanged = 0;
+static void (*Window_aPrevSigHandlers[3])(int);
+static const int Window_aTermSignals[3] = { SIGINT, SIGTERM, SIGHUP };
+
+static void Window_RestoreTerminal(void)
+{
+    if (Window_bTermChanged)
+        tcsetattr(0, TCSANOW, &Window_origTerm);
+}
+
+static void Window_TerminalSignal(int sig)
+{
+    Window_RestoreTerminal();
+    for (int i = 0; i < 3; i++) {
+        if (Window_aTermSignals[i] != sig) continue;
+        void (*prev)(int) = Window_aPrevSigHandlers[i];
+        if (prev != SIG_DFL && prev != SIG_IGN && prev != SIG_ERR && prev) {
+            prev(sig); // stdLog's: logs the signal, then re-raises it
+            return;
+        }
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 int my_kbhit() {
     static const int STDIN = 0;
     static int initialized = 0;
@@ -645,6 +679,14 @@ int my_kbhit() {
         // Use termios to turn off line buffering
         struct termios term;
         tcgetattr(STDIN, &term);
+        // Added: keep the original to restore at exit
+        if (!Window_bTermChanged && isatty(STDIN)) {
+            Window_origTerm = term;
+            Window_bTermChanged = 1;
+            atexit(Window_RestoreTerminal);
+            for (int i = 0; i < 3; i++)
+                Window_aPrevSigHandlers[i] = signal(Window_aTermSignals[i], Window_TerminalSignal);
+        }
         term.c_lflag &= ~ICANON;
         term.c_lflag &= ~ECHO;
         tcsetattr(STDIN, TCSANOW, &term);
@@ -679,14 +721,17 @@ void Window_UpdateHeadless()
         for (int i = 0; i < bytes_read; i++)
         {
             if (buffer[i] == '\n' || buffer[i] == '\r') {
-                printf("\r> %s\n", Window_headlessBuffer);
+                // Added: the prompt only on the terminal, the command into the log
+                stdLog_TerminalPrintf("\r> %s\n", Window_headlessBuffer);
+                if (Window_headlessBuffer[0])
+                    stdLog_FilePrintf("console", "%s", Window_headlessBuffer);
                 sithConsole_ExeCommand(Window_headlessBuffer);
                 memset(Window_headlessBuffer, 0, sizeof(Window_headlessBuffer));
                 continue;
             }
             else if (buffer[i] == 0x7F && strlen(Window_headlessBuffer)) {
                 Window_headlessBuffer[strlen(Window_headlessBuffer)-1] = 0;
-                printf("\r> %s ", Window_headlessBuffer);
+                stdLog_TerminalPrintf("\r> %s ", Window_headlessBuffer); // Added: terminal only
                 continue;
             }
             else if (buffer[i] < ' ' || buffer[i] > '~')
@@ -699,7 +744,18 @@ void Window_UpdateHeadless()
         }
     }
     
-    printf("\r> %s", Window_headlessBuffer);
+    // Added: terminal only (it redraws every frame), and only when someone can
+    // type at it: under systemd/nohup/a pipe it filled the output with prompts
+    static int bInteractive = -1;
+    if (bInteractive < 0) {
+#if defined(WIN64_MINGW) || (_WIN32)
+        bInteractive = 1;
+#else
+        bInteractive = isatty(STDIN_FILENO);
+#endif
+    }
+    if (bInteractive)
+        stdLog_TerminalPrintf("\r> %s", Window_headlessBuffer);
     //printf("> %x %x %s\n", buffer[0], my_kbhit(), Window_headlessBuffer);
     fflush(stdout);
 
@@ -760,6 +816,8 @@ void Window_UpdateHeadless()
             Window_menu_mouseY = Window_mouseY;
             Window_lastXRel = 0;
             Window_lastYRel = 0;
+            Window_mouseXRelF = 0.0f;
+            Window_mouseYRelF = 0.0f;
         }
     }
 
@@ -1145,10 +1203,13 @@ void Window_SdlUpdate()
                 break;
             case SDL_EVENT_MOUSE_WHEEL:
             {
-                int wheelY = (int)event.wheel.y;
+                // Altered: was (int)event.wheel.y, which truncates the fractional steps of
+                // high-resolution wheels (Linux) to 0, so wheel binds never fired.
+                // integer_y adds them up into whole notches.
+                int wheelY = event.wheel.integer_y;
 
-                Window_mouseWheelY = wheelY;
-                Window_mouseWheelX = (int)event.wheel.x;
+                Window_mouseWheelY += wheelY;
+                Window_mouseWheelX += event.wheel.integer_x;
 
                 // Preserve console scrolling.
                 if (jkQuakeConsole_bOpen)
@@ -1348,6 +1409,8 @@ void Window_SdlUpdate()
             Window_menu_mouseY = Window_mouseY;
             Window_lastXRel = 0;
             Window_lastYRel = 0;
+            Window_mouseXRelF = 0.0f;
+            Window_mouseYRelF = 0.0f;
         }
 
 #ifdef QUAKE_CONSOLE
@@ -1360,6 +1423,8 @@ void Window_SdlUpdate()
             Window_menu_mouseY = Window_mouseY;
             Window_lastXRel = 0;
             Window_lastYRel = 0;
+            Window_mouseXRelF = 0.0f;
+            Window_mouseYRelF = 0.0f;
         }
 
         if (jkQuakeConsole_bOpen)
@@ -1403,9 +1468,10 @@ void Window_SdlVblank()
     //static uint32_t roundtrip = 0;
     //uint32_t before = stdPlatform_GetTimeMsec();
     jkGame_ScreenshotFlush(); // Added: F12 shots capture the finished frame
-#ifdef ARCH_WASM
+    // Altered: was WASM-only. The character screen's model drawer calls rdFinishFrame every frame,
+    // which ends up here, and Window_SdlUpdate presents the menu right after. Swapping here too
+    // showed a stale back buffer every other swap (ghosted model on NVIDIA/Linux).
     if (!jkGuiBuildMulti_bRendering)
-#endif
     SDL_GL_SwapWindow(displayWindow);
     //uint32_t after = stdPlatform_GetTimeMsec();
     //printf("%u %u\n", after-before, before-roundtrip);
@@ -1515,6 +1581,7 @@ void Window_RecreateSDL2Window()
     if (!displayWindow) {
         char errtmp[256];
         snprintf(errtmp, 256, "!! Failed to create SDL2 window !!\n%s", SDL_GetError());
+        fprintf(stderr, "%s (no display? servers: use -headless)\n", errtmp); // Added: a message box alone shows nothing without a display
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errtmp, NULL);
         exit (-1);
     }
@@ -1563,6 +1630,7 @@ void Window_RecreateSDL2Window()
     {
         char errtmp[256];
         snprintf(errtmp, 256, "!! Failed to initialize SDL OpenGL context !!\n%s", SDL_GetError());
+        fprintf(stderr, "%s (no display? servers: use -headless)\n", errtmp); // Added: a message box alone shows nothing without a display
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", errtmp, NULL);
         exit(-1);
     }
@@ -1571,6 +1639,14 @@ void Window_RecreateSDL2Window()
     SDL_GL_MakeCurrent(displayWindow, glWindowContext);
     SDL_GL_SetSwapInterval(jkPlayer_enableVsync); // Disable vsync
 #if !defined(TARGET_ANDROID) && !defined(TARGET_IOS)
+#ifdef ARCH_WASM
+    // Added: while SDL's text input is on, the browser still acts on most
+    // keys (Alt+D, Firefox's Quick Find on / and ', ...) and can take the
+    // keyboard from the game. Chat, the console and menu text boxes turn it on
+    // while they're open (stdControl_ShowSystemKeyboard); DroidWorks' text
+    // boxes need it on from the start.
+    if (Main_bDroidWorks)
+#endif
     SDL_StartTextInput(displayWindow);
 #endif
 
@@ -1583,6 +1659,9 @@ void Window_RecreateSDL2Window()
 void Window_Main_Loop()
 {
     jkMain_GuiAdvance(); // TODO needed?
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    jkServer_Tick(); // Added: a dedicated server's waiting rcon command
+#endif
 #ifdef TARGET_DREAMCAST
     // Loop-phase tracer (see std3D border tracer). BLUE (set in std3D_EndScene) still
     // showing here => hang inside the tick after the render; CYAN => hang in the
@@ -1634,6 +1713,15 @@ int Window_Main_Linux(int argc, char** argv)
     // what iosAudioSession_Initialize() installs, so SDL leaves the session alone.
 #endif
 
+    // Added: -headless (servers) never opens a window or OpenGL, so it runs
+    // without a display. The command line is parsed only later (Main_Startup).
+    for (int i = 1; i < argc; i++) {
+        if (!__strcmpi(argv[i], "-headless") || !__strcmpi(argv[i], "/headless"))
+            Main_bHeadless = 1;
+    }
+    if (Main_bHeadless)
+        SDL_Init(SDL_INIT_EVENTS);
+    else
     SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD);
 
     
@@ -1692,6 +1780,7 @@ int Window_Main_Linux(int argc, char** argv)
 
     Window_RecreateSDL2Window();
 #if !defined(TARGET_ANDROID) && !defined(TARGET_IOS) && !defined(ARCH_WASM) && !defined(RENDER_GL11)
+    if (!Main_bHeadless) // Added
     glewInit();
 #endif
     

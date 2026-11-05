@@ -2,6 +2,13 @@
 
 #include <iostream>
 #include <fstream>
+#ifdef _WIN32
+#include <process.h>
+#define STDJSON_GETPID() _getpid() // Added: stdJSON_WriteToFile's temporary file
+#else
+#include <unistd.h>
+#define STDJSON_GETPID() getpid()
+#endif
 #include <vector>
 #include <cstring>
 #include <stdlib.h>
@@ -99,7 +106,18 @@ static nlohmann::json stdJSON_OpenAndReadFile(const char* pFpath)
     }
 
     std::ifstream i(json_path);
-    i >> json_file;
+    // Altered: a file that doesn't parse (empty, cut short) threw out of here and ended the game.
+    // It's kept as <file>.bad and read as empty.
+    try {
+        i >> json_file;
+    }
+    catch (const nlohmann::json::exception& e) {
+        i.close();
+        stdPlatform_Printf("ERROR: `%s` can't be read (%s), kept as `%s.bad`\n", pFpath, e.what(), pFpath);
+        std::error_code ec;
+        fs::rename(json_path, fs::path(std::string(pFpath) + ".bad"), ec);
+        return nlohmann::json(nlohmann::json::value_t::object);
+    }
     i.close();
 
     return json_file;
@@ -142,17 +160,34 @@ static int stdJSON_WriteToFile(const char* pFpath, nlohmann::json& json_file)
         return 0;
     }
 
+    // Altered: written to a temporary file that then replaces the old one, so that another
+    // game reading it at the same moment (two dedicated servers started from one folder)
+    // never finds it empty or half written.
     fs::path json_path = {pFpath};
-    std::ofstream o(json_path);
-    if (!o)
+    fs::path tmp_path = {std::string(pFpath) + ".tmp" + std::to_string((unsigned long)STDJSON_GETPID())};
     {
-        stdPlatform_Printf("ERROR: Failed to open `%s`!\n", pFpath);
-        return 0;
+        std::ofstream o(tmp_path);
+        if (!o)
+        {
+            stdPlatform_Printf("ERROR: Failed to open `%s`!\n", pFpath);
+            return 0;
+        }
+        o << json_file.dump(4, ' ', true);
+        o.close();
+        if (!o)
+        {
+            stdPlatform_Printf("ERROR: Failed to write `%s`!\n", pFpath);
+            std::error_code ec;
+            fs::remove(tmp_path, ec);
+            return 0;
+        }
     }
-    o << json_file.dump(4, ' ', true);
-    if (!o)
+    std::error_code ec;
+    fs::rename(tmp_path, json_path, ec);
+    if (ec)
     {
         stdPlatform_Printf("ERROR: Failed to write `%s`!\n", pFpath);
+        fs::remove(tmp_path, ec);
         return 0;
     }
     return 1;
@@ -407,6 +442,93 @@ int stdJSON_IterateKeys(const char* pFpath, stdJSONCallback_t pCallbackFn, void*
     //[pKey] = std::string(pVal);
     //return stdJSON_WriteToFile(pFpath, json_file);
     return 1;
+}
+
+// Added: a list of strings (a JSON array, or one string with the items separated
+// by commas or spaces) into maxRows rows of rowLen chars. Returns how many. A
+// missing key is written as an empty array, so it shows up in the file.
+int stdJSON_GetStringList(const char* pFpath, const char* pKey, char* pOut, int maxRows, int rowLen)
+{
+    CHECK_COMMON(pFpath, pKey);
+    CHECK_ARGPTR(pOut);
+
+    std::vector<std::string> items;
+    nlohmann::json json_file = stdJSON_OpenAndReadFile(pFpath);
+    if (!json_file.contains(pKey))
+    {
+        json_file[pKey] = nlohmann::json::array();
+        stdJSON_WriteToFile(pFpath, json_file);
+        return 0;
+    }
+    const nlohmann::json& v = json_file[pKey];
+    if (v.is_array())
+    {
+        for (const auto& el : v)
+            if (el.is_string()) items.push_back(el.get<std::string>());
+    }
+    else if (v.is_string())
+    {
+        std::string cur;
+        for (char c : v.get<std::string>() + ",")
+        {
+            if (c == ',' || c == ' ' || c == '\t') { if (!cur.empty()) items.push_back(cur); cur.clear(); }
+            else cur += c;
+        }
+    }
+    int n = 0;
+    for (const auto& item : items)
+    {
+        if (n >= maxRows || item.empty()) continue;
+        strncpy(pOut + (size_t)n * rowLen, item.c_str(), rowLen - 1);
+        pOut[(size_t)n * rowLen + rowLen - 1] = 0;
+        n++;
+    }
+    return n;
+}
+
+// Added: writes a list of strings (given as one, items separated by commas) as a JSON array.
+int stdJSON_SetStringList(const char* pFpath, const char* pKey, const char* pCommaList)
+{
+    CHECK_COMMON(pFpath, pKey);
+    CHECK_ARGPTR(pCommaList);
+
+    nlohmann::json json_file = stdJSON_OpenAndReadFile(pFpath);
+    nlohmann::json arr = nlohmann::json::array();
+    std::string cur;
+    for (const char* p = pCommaList; ; p++)
+    {
+        if (*p == ',' || !*p) { if (!cur.empty()) arr.push_back(cur); cur.clear(); if (!*p) break; }
+        else cur += *p;
+    }
+    json_file[pKey] = arr;
+    return stdJSON_WriteToFile(pFpath, json_file);
+}
+
+// Added: whether pKey is in the file (any type).
+int stdJSON_HasKey(const char* pFpath, const char* pKey)
+{
+    CHECK_COMMON(pFpath, pKey);
+
+    nlohmann::json json_file = stdJSON_OpenAndReadFile(pFpath);
+    return json_file.contains(pKey) ? 1 : 0;
+}
+
+// Added: moves pKey and its value (any type) from one file to another. 0 if it
+// wasn't in pFrom.
+int stdJSON_MoveKey(const char* pFrom, const char* pTo, const char* pKey)
+{
+    CHECK_COMMON(pFrom, pKey);
+    CHECK_ARGPTR(pTo);
+
+    nlohmann::json from = stdJSON_OpenAndReadFile(pFrom);
+    if (!from.contains(pKey))
+        return 0;
+    nlohmann::json to = stdJSON_OpenAndReadFile(pTo);
+    to[pKey] = from[pKey];
+    if (!stdJSON_WriteToFile(pTo, to))
+        return 0;
+    from.erase(pKey);
+    return stdJSON_WriteToFile(pFrom, from);
 }
 
 int stdJSON_EraseKey(const char* pFpath, const char* pKey)

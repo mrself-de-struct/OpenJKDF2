@@ -24,6 +24,10 @@ int stdJSON_GetWString(const char* pFpath, const char* pKey, char16_t* pOut, int
 
 int stdJSON_IterateKeys(const char* pFpath, stdJSONCallback_t pCallbackFn, void* pCtx);
 int stdJSON_EraseKey(const char* pFpath, const char* pKey);
+int stdJSON_HasKey(const char* pFpath, const char* pKey); // Added
+int stdJSON_GetStringList(const char* pFpath, const char* pKey, char* pOut, int maxRows, int rowLen); // Added
+int stdJSON_SetStringList(const char* pFpath, const char* pKey, const char* pCommaList); // Added
+int stdJSON_MoveKey(const char* pFrom, const char* pTo, const char* pKey); // Added
 int stdJSON_EraseAll(const char* pFpath);
 
 #ifdef __cplusplus

@@ -133,3 +133,12 @@ AGENTS.md
 .blocksds
 packaging/dreamcast/disc/*
 CLAUDE.md
+
+# local build outputs
+/build_linux64/
+/build_linux64_portable/
+/build_win64/
+/dplay_probe
+/jkrelay_server
+/win64-build.log
+/tools/jkrelay/dist/

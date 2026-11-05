@@ -49,7 +49,9 @@ int sithCommand_Kick(stdDebugConsoleCmd *pCmd, const char *pArgStr);
 // Added
 int sithCommand_CmdThingNpc(stdDebugConsoleCmd *pCmd, const char *pArgStr);
 int sithCommand_CmdBind(stdDebugConsoleCmd *pCmd, const char *pArgStr);
+void sithCommand_RejoinAsked(void); // Added: the server asked everyone to reconnect
 int sithCommand_CmdUnbind(stdDebugConsoleCmd *pCmd, const char *pArgStr);
+int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr);
 
 // Added
 void sithCommand_StartupBinds();

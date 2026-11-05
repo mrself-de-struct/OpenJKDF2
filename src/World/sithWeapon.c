@@ -24,6 +24,9 @@
 #include "Dss/sithDSSThing.h"
 #include "General/stdMath.h"
 #include "jk.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 // MOTS added
 int sithWeapon_mots_5a3258 = -1;
@@ -506,6 +509,11 @@ SithThing* sithWeapon_WeaponFire(SithThing *pShooter, SithThing *pProjectileTemp
     return spawned;
 }
 
+#ifdef PLATFORM_DPLAY
+SithSector* sithWeapon_pFireStartSector = NULL;
+rdVector3 sithWeapon_fireStartPos;
+#endif
+
 SithThing* sithWeapon_WeaponFireProjectile(SithThing *pShooter, SithThing *pProjectileTemplate, rdVector3 *pFireDir, rdVector3 *pFirePos, sithSound *hFireSnd, int submode, flex_t scale, char flags, flex_t secDeltaTime, int extra)
 {
     SithThing *v9; // esi
@@ -546,13 +554,31 @@ SithThing* sithWeapon_WeaponFireProjectile(SithThing *pShooter, SithThing *pProj
                 pProjectileTemplate->physicsParams.vel.z = 0;
             }
         }
-        v9 = sithThing_CreateThingAtPos(pProjectileTemplate, &pShooter->position, &a3a, pShooter->sector, pShooter);
+        rdVector3* pStartPos = &pShooter->position;
+        SithSector* pStartSector = pShooter->sector;
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: another game's shot starts where its shooter was
+        // as it fired, when this game shows them elsewhere.
+        if ( sithWeapon_pFireStartSector )
+        {
+            pStartPos = &sithWeapon_fireStartPos;
+            pStartSector = sithWeapon_pFireStartSector;
+        }
+#endif
+        v9 = sithThing_CreateThingAtPos(pProjectileTemplate, pStartPos, &a3a, pStartSector, pShooter);
         if (Main_bMotsCompat) {
             pProjectileTemplate->physicsParams.vel.z = fVar3;
         }
 
         if (!v9 )
             return 0;
+
+#ifdef PLATFORM_DPLAY
+        // Added: another game's shot goes by that game's id from the start, so what
+        // it hits on the way to its fire position is known by it.
+        if ( stdComm_WSRelay_fireGuid )
+            v9->guid = stdComm_WSRelay_fireGuid;
+#endif
 
         if (Main_bMotsCompat) {
             a5a.x = (flex_t)extra; // FLEXTODO
@@ -570,7 +596,7 @@ SithThing* sithWeapon_WeaponFireProjectile(SithThing *pShooter, SithThing *pProj
             v9->weaponParams.damage *= scale;
         if (flags & 8)
             v9->weaponParams.unk8 *= scale;
-        rdVector_Sub3(&a1, pFirePos, &pShooter->position);
+        rdVector_Sub3(&a1, pFirePos, pStartPos); // Changed: pStartPos (Hit what you see)
         if (!rdVector_IsZero3(&a1))
         {
             a6a = rdVector_Normalize3Acc(&a1);
@@ -627,6 +653,12 @@ void sithWeapon_DamageWeapon(SithThing *pThing, SithThing* pPurpetrator, flex_t 
 
     if ( (pThing->weaponParams.flags & SITH_WF_DAMAGEDESTROY) != 0 && damage > 1.0 )
     {
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: a charge goes off in every game at once, when the
+        // game that fired it or the one whose player hit it says.
+        if ( sithNet_isMulti && !stdComm_WSRelay_ArmCharge(pThing, pPurpetrator, 250) )
+            return;
+#endif
         if ( !pThing->msecLifeLeft || pThing->msecLifeLeft > 250 )
             pThing->msecLifeLeft = 250;
     }
@@ -656,6 +688,12 @@ int sithWeapon_ThingCollisionHandler(SithThing *pWeapon, SithThing *pThing, Sith
         if (MOTS_ONLY_FLAG(pThing->type == SITH_THING_COG && a5)) {
             return 0;
         }
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: a mine goes off in every game at once, when the
+        // game that laid it or the one whose player set it off says.
+        if ( sithNet_isMulti && !stdComm_WSRelay_ArmCharge(pWeapon, pThing, 550) )
+            return 0;
+#endif
         pWeapon->weaponParams.flags &= ~SITH_WF_PROXIMITY;
         pWeapon->weaponParams.flags |= SITH_WF_EXPLODE;
         pWeapon->collideSize = 0.0;
@@ -726,8 +764,21 @@ int sithWeapon_ThingCollisionHandler(SithThing *pWeapon, SithThing *pThing, Sith
       && bFlagsHadWfImpactSoundFxEarlier
       && !(pThing->flags & (SITH_TF_DEAD|SITH_TF_DESTROYED))
       && (pThing != sithPlayer_g_pLocalPlayerThing || sithTime_g_secGameTime >= (flex_d_t)sithWeapon_fireWait)
+#ifdef PLATFORM_DPLAY
+      // Added: Hit what you see: whether a player turns another game's bolt away is
+      // that game's to decide, by what it shows. If it does, it says where the bolt
+      // goes (stdComm_WSRelay_BoltTurned). And another player is in their fire wait
+      // for as long as their game says, as this game's own player is above.
+      && !(sithNet_isMulti && stdComm_WSRelay_BlockDecidedElsewhere(pWeapon, pThing))
+      && !(sithNet_isMulti && stdComm_WSRelay_InFireWait(pThing))
+#endif
       && sithActor_thing_anim_blocked(pWeapon, pThing, pCollision) )
     {
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: a bolt this game fired takes its new path in every game.
+        if ( sithNet_isMulti && pThing->type == SITH_THING_PLAYER )
+            stdComm_WSRelay_BoltTurned(pWeapon, pThing);
+#endif
         return 1;
     }
     if ( pWeapon->weaponParams.damage == 0.0 && !(pWeapon->weaponParams.flags & (SITH_WF_ATTACHTHING | SITH_WF_THINGHITEXPLODE)))
@@ -865,9 +916,23 @@ void sithWeapon_CreateWeaponExplosion(SithThing *pWeapon, SithThing *pExplosionT
     if (pExplosionTemplate)
     {
         SithThing* player = sithThing_GetThingParent(pWeapon);
+#ifdef PLATFORM_DPLAY
+        // Added: Hit what you see: and so is any explosion the blast's
+        // template makes in turn (creatething), as MotS's flash bomb's are.
+        SithThing* pWasBlast = sithNet_isMulti ? stdComm_WSRelay_MakingBlast(pWeapon) : NULL;
+#endif
         SithThing* spawned = sithThing_CreateThingAtPos(pExplosionTemplate, &pWeapon->position, &rdroid_identMatrix34, pWeapon->sector, player);
+#ifdef PLATFORM_DPLAY
+        if ( sithNet_isMulti )
+            stdComm_WSRelay_MakingBlast(pWasBlast);
+#endif
         if (spawned)
         {
+#ifdef PLATFORM_DPLAY
+            // Added: Hit what you see: a blast is known by the shot it came from.
+            if ( sithNet_isMulti )
+                stdComm_WSRelay_NoteBlast(spawned, pWeapon);
+#endif
             // Added: second comparison, co-op
             if (player == sithPlayer_g_pLocalPlayerThing || player->type == SITH_THING_PLAYER) {
                 sithAIAwareness_CreateTransmittingEvent(spawned->sector, &spawned->position, 0, 2.0, player);

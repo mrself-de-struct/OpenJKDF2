@@ -2,7 +2,6 @@
 
 BINDIR="build_win64"
 EXE="$BINDIR/openjkdf2-64.exe"
-GNS="$BINDIR/libGameNetworkingSockets.dll"
 PREFIX="x86_64-w64-mingw32"
 
 paths=("/usr/local/mingw64/bin"
@@ -46,6 +45,3 @@ function copyForOBJ() {
 }
 
 copyForOBJ $EXE
-if [ -f $GNS ]; then
-    copyForOBJ $GNS
-fi

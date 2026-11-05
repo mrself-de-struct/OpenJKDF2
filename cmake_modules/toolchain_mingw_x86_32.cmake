@@ -3,6 +3,13 @@ set(CMAKE_SYSTEM_VERSION 1)
 set(CMAKE_SYSTEM_PROCESSOR i686)
 set(TOOLCHAIN_PREFIX i686-w64-mingw32)
 
+# Keep pkg-config to the MinGW sysroot. Otherwise it reports the build
+# machine's Linux packages (e.g. freeglut -> -I/usr/include, or PipeWire for
+# OpenAL), and Linux headers end up in the Windows build. Applies to the
+# bundled libraries' builds too, since they use this toolchain file.
+set(ENV{PKG_CONFIG_LIBDIR} "/usr/${TOOLCHAIN_PREFIX}/lib/pkgconfig:/usr/${TOOLCHAIN_PREFIX}/share/pkgconfig")
+set(ENV{PKG_CONFIG_PATH} "")
+
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 

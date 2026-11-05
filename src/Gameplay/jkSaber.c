@@ -212,6 +212,15 @@ void jkSaber_UpdateLength(SithThing *thing)
         // Added? I think my RETRACT | EXTEND fix inavertently exposed a bug
         thing->jkFlags &= ~JKFLAG_SABERFORCEON;
     }
+    // Altered: another player who spawns with the saber out (MotS weap_saber_m.cog sets FORCEON)
+    // turns it on at full length before their state update goes out, so we only get SABERON,
+    // without EXTEND, and their blade stayed at length 0 until they put it away and back.
+    // A lit saber that isn't extending or retracting is at full length.
+    else if (sithNet_isMulti && thing != sithPlayer_g_pLocalPlayerThing && playerInfo->polyline.length < playerInfo->length)
+    {
+        playerInfo->polyline.length = playerInfo->length;
+        thing->actorParams.timeLeftLengthChange = JKSABER_LENGTHCHANGE;
+    }
 
     if ( thing->pPuppetClass->aJoints[JOINTTYPE_PRIMARYWEAP] >= 0 )
     {

@@ -17,6 +17,9 @@
 #include "Platform/wuRegistry.h"
 #include "General/stdString.h"
 #include "Devices/sithComm.h"
+#include "Main/jkRes.h"
+#include "Main/jkEpisode.h"
+#include "World/jkPlayer.h"
 
 static int jkGuiMultiplayer_bInitted = 0;
 static int32_t jkGuiMultiplayer_aElements2_aIdk[2] = {0xd, 0xe};
@@ -40,6 +43,10 @@ static jkGuiElement jkGuiMultiplayer_aElements2[7] = {
     {ELEMENT_TEXTBUTTON, -1,  2, "GUI_CANCEL",  3, {20, 0x1AE, 0xC8, 0x28},  1,  0,  0,  0,  0,  0, {0},  0},
     {ELEMENT_END,  0,  0,  0,  0, {0},  0,  0,  0,  0,  0,  0, {0},  0},
 };
+
+#ifdef PLATFORM_DPLAY
+static uint32_t jkGuiMultiplayer_autoJoinStartMs = 0; // Added: see stdComm_DPlay_AutoJoinPending
+#endif
 
 static jkGuiElement jkGuiMultiplayer_aElements3[13] = {
     {ELEMENT_TEXT,  0,  0,  0,  3, { 0, 0x19A, 0x280, 20},  1,  0,  0,  0,  0,  0, {0},  0},
@@ -103,6 +110,19 @@ void jkGuiMultiplayer_Shutdown()
 }
 
 // MOTS altered?
+#ifdef PLATFORM_DPLAY
+// Added: console "connect" while the Multiplayer menu is up: press Join (the
+// auto-join takes it from there). bDo 0 only asks whether it can.
+int jkGuiMultiplayer_ConnectNow(int bDo)
+{
+    if ( jkGuiRend_GetActiveMenu() != &jkGuiMultiplayer_menu )
+        return 0;
+    if ( bDo )
+        jkGuiMultiplayer_menu.lastClicked = 100;
+    return 1;
+}
+#endif
+
 int jkGuiMultiplayer_Show()
 {
     int result; // eax
@@ -139,6 +159,9 @@ int jkGuiMultiplayer_Show()
     Darray a1; // [esp+28h] [ebp-23Ch] BYREF
     jkMultiEntry3 v34; // [esp+40h] [ebp-224h] BYREF
     jkMultiEntry4 v35; // [esp+180h] [ebp-E4h] BYREF
+#ifdef PLATFORM_DPLAY
+    int bAutoJoin = 0; // Added
+#endif
 
 LABEL_1:
     while ( 2 )
@@ -146,6 +169,12 @@ LABEL_1:
         while ( 2 )
         {
             jkGuiRend_MenuSetEscapeKeyShortcutElement(&jkGuiMultiplayer_menu, &jkGuiMultiplayer_aElements[4]);
+#ifdef PLATFORM_DPLAY
+            // Added: joining a game again after restarting into its mod: straight to Join
+            if ( stdComm_DPlay_AutoJoinPending() )
+                result = 100;
+            else
+#endif
             result = jkGuiRend_DisplayAndReturnClicked(&jkGuiMultiplayer_menu);
             switch ( result )
             {
@@ -171,6 +200,15 @@ LABEL_1:
                     jkGuiMultiplayer_aElements2[3].selectedTextEntry = 0;
                     jkGuiRend_MenuSetReturnKeyShortcutElement(&jkGuiMultiplayer_menu2, &jkGuiMultiplayer_aElements2[4]);
                     jkGuiRend_MenuSetEscapeKeyShortcutElement(&jkGuiMultiplayer_menu2, &jkGuiMultiplayer_aElements2[5]);
+#ifdef PLATFORM_DPLAY
+                    // Added: the connection picked before the restart
+                    if ( stdComm_DPlay_AutoJoinPending() )
+                    {
+                        jkGuiMultiplayer_aElements2[3].selectedTextEntry = stdComm_DPlay_AutoJoinConnection();
+                        v3 = 1;
+                    }
+                    else
+#endif
                     v3 = jkGuiRend_DisplayAndReturnClicked(&jkGuiMultiplayer_menu2);
                     if ( v3 > 0 )
                     {
@@ -196,11 +234,29 @@ LABEL_1:
                         }
                     }
                     jkGuiRend_DarrayFree(&a1);
+#ifdef PLATFORM_DPLAY
+                    if ( v3 != 1 && stdComm_DPlay_AutoJoinPending() )
+                        stdComm_DPlay_AutoJoinDone(0); // Added: couldn't open it, back to the menus
+#endif
                     if ( v3 != 1 )
                         continue;
                     _memset(&v35, 0, sizeof(v35));
                     _memset(&jkGuiMultiplayer_stru_556168, 0, sizeof(jkGuiMultiplayer_stru_556168));
                     memset(&jkGui_guid_556040, 0, sizeof(GUID));
+#ifdef PLATFORM_DPLAY
+                    // Added: the password typed before the restart; the list's idle
+                    // function clicks Join once the game shows up
+                    if ( stdComm_DPlay_AutoJoinPending() )
+                    {
+                        stdString_SafeWStrCopy((char16_t*)jkGuiMultiplayer_stru_556168.field_300, (const char16_t*)stdComm_DPlay_AutoJoinPassword(), 0x20);
+                        jkGuiMultiplayer_autoJoinStartMs = stdPlatform_GetTimeMsec();
+                    }
+#endif
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+                    // Added: no address box for the Imperial Network Protocol. Its games come from
+                    // the master servers (net_masterServers) and the saved relay server.
+                    jkGuiMultiplayer_aElements3[11].bIsVisible = stdComm_DPlay_ServerKind() != 1;
+#endif
                     jkGuiRend_DarrayNewStr(&jkGuiMultiplayer_stru_5564A8, 8, 1);
                     jkGuiRend_DarrayReallocStr(&jkGuiMultiplayer_stru_5564A8, 0, 0);
                     jkGuiRend_SetClickableString(&jkGuiMultiplayer_aElements3[3], &jkGuiMultiplayer_stru_5564A8);
@@ -210,7 +266,13 @@ LABEL_1:
                     jkGuiRend_MenuSetReturnKeyShortcutElement(&jkGuiMultiplayer_menu3, &jkGuiMultiplayer_aElements3[9]);
                     jkGuiRend_MenuSetEscapeKeyShortcutElement(&jkGuiMultiplayer_menu3, &jkGuiMultiplayer_aElements3[10]);
                     if ( jkGuiRend_DisplayAndReturnClicked(&jkGuiMultiplayer_menu3) != 1 )
+                    {
+#ifdef PLATFORM_DPLAY
+                        if ( stdComm_DPlay_AutoJoinPending() )
+                            stdComm_DPlay_AutoJoinDone(0); // Added: cancelled
+#endif
                         goto LABEL_29;
+                    }
                     break;
                 case 101:
                     _memset(&v34, 0, sizeof(v34));
@@ -334,6 +396,23 @@ LABEL_29:
                 goto LABEL_1;
             }
         }
+#ifdef PLATFORM_DPLAY
+        // Added: joining again after the restart: the character picked before it
+        bAutoJoin = stdComm_DPlay_AutoJoinPending();
+        if ( bAutoJoin )
+        {
+            int idx = jkGuiMultiplayer_aElements3[3].selectedTextEntry;
+            char16_t name[32];
+            stdComm_DPlay_AutoJoinDone(1);
+            stdString_SafeWStrCopy(name, (const char16_t*)stdComm_DPlay_AutoJoinCharacter(), 32);
+            jkEpisode_LoadVerify();
+            jkRes_LoadGob(jkGuiMultiplayer_aEntries[idx].episodeGobName);
+            if ( !name[0] || !jkPlayer_MPCParse(&jkGuiMultiplayer_mpcInfo, &jkPlayer_playerInfos[playerThingIdx], jkPlayer_playerShortName, name, 1) )
+                bAutoJoin = 0; // can't read it now, let the player pick
+            jkGui_SetModeGame();
+        }
+        if ( !bAutoJoin )
+#endif
         if ( jkGuiBuildMulti_ShowLoad(
                  &jkGuiMultiplayer_mpcInfo,
                  jkGuiMultiplayer_aEntries[jkGuiMultiplayer_aElements3[3].selectedTextEntry].episodeGobName,
@@ -342,7 +421,7 @@ LABEL_29:
                  jkGuiMultiplayer_aEntries[jkGuiMultiplayer_aElements3[3].selectedTextEntry].maxRank,
                  jkGuiMultiplayer_aEntries[jkGuiMultiplayer_aElements3[3].selectedTextEntry].multiModeFlags & MULTIMODEFLAG_1000) != 1 )
             goto LABEL_28;
-#ifdef QOL_IMPROVEMENTS
+#if defined(QOL_IMPROVEMENTS) && !defined(PLATFORM_DPLAY)
         // HACK: Actually do passwords correctly
         int check = __wcscmp((const char16_t*)jkGuiMultiplayer_aEntries[jkGuiMultiplayer_aElements3[3].selectedTextEntry].wPassword, (const char16_t*)jkGuiMultiplayer_stru_556168.field_300);
         if (check) {
@@ -352,9 +431,26 @@ LABEL_29:
             goto LABEL_28;
         }
 
+#endif
+#ifdef QOL_IMPROVEMENTS
+        // (With DirectPlay the host checks the password; a wrong one comes back
+        // from stdComm_Open as DPERR_INVALIDPASSWORD.)
         wuRegistry_SetWString("lastConnectedHost", jkGuiMultiplayer_ipText);
 #endif
         v10 = stdComm_Open(v7, v35.sessionName);
+#ifdef PLATFORM_DPLAY
+        // Added: the host runs another mod and the engine restarts into it
+        // (g_should_exit is set); back out of the menus without showing any.
+        if ( v10 == STDCOMM_DPLAY_RESTART )
+        {
+            jkGuiRend_DarrayFree(&jkGuiMultiplayer_stru_5564A8);
+            stdComm_CloseConnection();
+            return -1;
+        }
+        // Added: already explained to the player (e.g. the host's mod is missing).
+        if ( v10 == STDCOMM_DPLAY_HANDLED )
+            goto LABEL_28;
+#endif
         if ( v10 )
         {
             if ( v10 == 0x8877014A )
@@ -371,6 +467,14 @@ LABEL_29:
             {
                 v27 = jkStrings_GetUniStringWithFallback("GUINET_NOGAMECONNECT");
                 v11 = jkStrings_GetUniStringWithFallback("GUINET_JOINERROR");
+#ifdef PLATFORM_DPLAY
+                // Added: the server said why (banned)
+                {
+                    static char16_t wRefusal[128];
+                    if ( stdComm_DPlay_JoinRefusalText((uint16_t*)wRefusal, 128) )
+                        v27 = wRefusal;
+                }
+#endif
             }
             jkGuiDialog_ErrorDialog(v11, v27);
             goto LABEL_28;
@@ -471,7 +575,17 @@ void jkGuiMultiplayer_sub_4140B0(jkGuiMenu *pMenu)
     if ( g_app_suspended )
     {
         v1 = stdPlatform_GetTimeMsec();
+#ifdef PLATFORM_DPLAY
+        // Added: joining a game again after the restart: look for it every second
+        if ( stdComm_DPlay_AutoJoinPicks() && v1 > jkGuiMultiplayer_autoJoinStartMs + 20000 )
+        {
+            stdComm_DPlay_AutoJoinDone(0);
+            jkGuiDialog_ErrorDialog(jkStrings_GetUniStringWithFallback("GUINET_JOINERROR"), u"The game you were joining isn't listed any more.");
+        }
+        if ( v1 > jkGuiMultiplayer_dword_5564E8 + (stdComm_DPlay_AutoJoinPending() ? 1000 : 5000) )
+#else
         if ( v1 > jkGuiMultiplayer_dword_5564E8 + 5000 )
+#endif
         {
             v2 = -1;
             jkGuiMultiplayer_dword_5564E8 = v1;
@@ -500,6 +614,14 @@ void jkGuiMultiplayer_sub_4140B0(jkGuiMenu *pMenu)
                     jkGuiRend_DarrayReallocStr(&jkGuiMultiplayer_stru_5564A8, 0, 0);
                     jkGuiRend_SetClickableString(&jkGuiMultiplayer_aElements3[3], &jkGuiMultiplayer_stru_5564A8);
                     jkGuiMultiplayer_aElements3[3].enableHover = 0;
+#ifdef PLATFORM_DPLAY
+                    // Added: the game being joined again is listed: select it and press Join
+                    if ( stdComm_DPlay_AutoJoinPending() && stdComm_DPlay_AutoJoinFind() >= 0 )
+                    {
+                        v2 = stdComm_DPlay_AutoJoinFind();
+                        pMenu->lastClicked = 1;
+                    }
+#endif
                 }
                 else
                 {
@@ -590,6 +712,11 @@ void jkGuiMultiplayer_sub_413E50(int idx)
         {
             jkGuiRend_SetVisibleAndDraw(&jkGuiMultiplayer_aElements3[9], &jkGuiMultiplayer_menu3, 1);
         }
+#ifdef PLATFORM_DPLAY
+        // Added: the game's mod (web lobby), on the otherwise unused third line.
+        stdComm_DPlay_DescribeMod(idx, (uint16_t*)jkGuiMultiplayer_stru_556168.field_200,
+                                  sizeof(jkGuiMultiplayer_stru_556168.field_200) / sizeof(char16_t));
+#endif
     }
     else
     {

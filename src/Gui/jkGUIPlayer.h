@@ -12,6 +12,10 @@
 int jkGuiPlayer_Startup();
 void jkGuiPlayer_Shutdown();
 void jkGuiPlayer_ShowNewPlayer(int a1);
+#ifdef QOL_IMPROVEMENTS
+int jkGuiPlayer_UseLastProfile(void); // Added: console commands on the player screen
+int jkGuiPlayer_ConnectNow(int bDo);
+#endif
 int jkGuiPlayer_DifficultyDraw(jkGuiElement *element, jkGuiMenu *menu, int32_t mouseX, int32_t mouseY, int bRedraw);
 
 #endif // _JKGUIPLAYER_H

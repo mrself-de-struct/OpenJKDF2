@@ -14,12 +14,23 @@
 #include "World/sithSurface.h"
 #include "stdPlatform.h"
 #include "AI/sithAI.h"
+#include "Gameplay/sithPlayer.h"
 #include "jk.h"
 
 #include <math.h>
 
 // Added: Turbo Mode doubles AI firing animation speed.
 extern int jkDev_bTurbo;
+
+// Added: the velocity each remote player's own game last sent, and when.
+// Between position updates their copy here only has a correction velocity,
+// often exactly zero, so animations picked from it (crouching backwards
+// most of all) flip back and forth and restart on every update.
+#define SITHPUPPET_NETVEL_PLAYERS (32)
+#define SITHPUPPET_NETVEL_MAX_AGE_MS (1000)
+static rdVector3 sithPuppet_aNetVel[SITHPUPPET_NETVEL_PLAYERS];
+static uint32_t sithPuppet_aNetVelMs[SITHPUPPET_NETVEL_PLAYERS];
+static int sithPuppet_aNetVelThing[SITHPUPPET_NETVEL_PLAYERS];
 
 static const char* sithPuppet_animNames[43+2] = {
     "--RESERVED--",
@@ -392,6 +403,38 @@ void sithPuppet_UpdatePuppet(SithThing *pThing, flex_t secDeltaTime)
     }
 }
 
+// Added
+void sithPuppet_SetNetVelocity(SithThing *pThing, const rdVector3 *pVel)
+{
+    int playerNum;
+
+    if ( !sithNet_isMulti || pThing == sithPlayer_g_pLocalPlayerThing )
+        return;
+    playerNum = sithPlayer_GetThingPlayerNum(pThing);
+    if ( playerNum < 0 || playerNum >= SITHPUPPET_NETVEL_PLAYERS )
+        return;
+    sithPuppet_aNetVel[playerNum] = *pVel;
+    sithPuppet_aNetVelMs[playerNum] = sithTime_g_msecGameTime;
+    sithPuppet_aNetVelThing[playerNum] = pThing->idx;
+}
+
+// Added: what a thing's walk animations follow. A remote player's is the
+// velocity their game sent, while it's recent.
+static const rdVector3* sithPuppet_GetAnimVelocity(SithThing *pThing)
+{
+    int playerNum;
+
+    if ( sithNet_isMulti && pThing->type == SITH_THING_PLAYER && pThing != sithPlayer_g_pLocalPlayerThing )
+    {
+        playerNum = sithPlayer_GetThingPlayerNum(pThing);
+        if ( playerNum >= 0 && playerNum < SITHPUPPET_NETVEL_PLAYERS
+          && sithPuppet_aNetVelThing[playerNum] == pThing->idx
+          && sithTime_g_msecGameTime - sithPuppet_aNetVelMs[playerNum] < SITHPUPPET_NETVEL_MAX_AGE_MS )
+            return &sithPuppet_aNetVel[playerNum];
+    }
+    return &pThing->physicsParams.vel;
+}
+
 flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
 {
     flex_d_t v2; // st7
@@ -414,9 +457,10 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     flex_t thinga; // [esp+24h] [ebp+4h]
 
     SITH_ASSERTREL(pThing); // Added: ported from OpenJones3D sithPuppet_UpdateThingMove
+    const rdVector3* pVel = sithPuppet_GetAnimVelocity(pThing); // Added
     v23 = 0.5;
     if ( !pThing->sector
-      || rdVector_IsZero3(&pThing->physicsParams.vel) )
+      || rdVector_IsZero3(pVel) )
     {
         v2 = 0.0;
         thinga = 0.0;
@@ -424,7 +468,7 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
     }
     else
     {
-        rdMatrix_TransformVectorOrtho34(&a1a, &pThing->physicsParams.vel, &pThing->orient);
+        rdMatrix_TransformVectorOrtho34(&a1a, pVel, &pThing->orient);
 
         // Added: Turbo Mode animation synchronization.
         if (!sithNet_isMulti
@@ -455,7 +499,7 @@ flex_t sithPuppet_UpdateThingMove(SithThing *pThing)
         else
         {
             v2 = a1a.y;
-            thinga = pThing->physicsParams.vel.z;
+            thinga = pVel->z;
             v3 = SITH_ANIM_WALK;
         }
     }

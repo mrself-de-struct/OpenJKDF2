@@ -14,6 +14,7 @@
 #include "General/stdFnames.h"
 #include "Main/jkStrings.h"
 #include "World/jkPlayer.h"
+#include "World/sithModel.h"
 #include "General/util.h"
 #include "Gui/jkGUITitle.h"
 #include "Engine/rdColormap.h"
@@ -295,7 +296,7 @@ rdModel3* jkGuiBuildMulti_ModelLoader(const char *pCharFpath, int unused)
     __snprintf(fpath, 128, "%s%c%s", "3do", '\\', pCharFpath); // ADDED: sprintf -> snprintf
     pModel = (rdModel3 *)JK_ALLOC(sizeof(rdModel3));
     memset(pModel, 0, sizeof(rdModel3));
-    return rdModel3_LoadEntry(fpath, pModel) != 0 ? pModel : NULL;
+    return (sithModel_LoadPackOverMod(fpath, pModel) || rdModel3_LoadEntry(fpath, pModel)) ? pModel : NULL; // Added: sithModel_LoadPackOverMod
 }
 
 rdMaterial* jkGuiBuildMulti_MatLoader(const char *pMatFname, int a, int b)

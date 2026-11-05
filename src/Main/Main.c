@@ -72,6 +72,12 @@
 #include "sithCvar.h"
 
 #include "Platform/Common/stdHttp.h"
+#include "Platform/Common/stdLog.h" // Added
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/DPlay/stdComm_dplay.h" // Added
+#include "Platform/Networking/DPlay/jkrelay_proto.h" // Added: JKR_DEFAULT_SERVER_PORT
+#include "Main/jkServer.h" // Added
+#endif
 #include "Platform/Common/stdUpdater.h"
 
 #if defined(PLATFORM_POSIX)
@@ -97,6 +103,8 @@
 
 static HostServices hs;
 
+char Main_strServerConfig[256] = SERVER_FNAME_DEFAULT; // Added: -serverConfig (SERVER_FNAME)
+
 #ifdef QOL_IMPROVEMENTS
 int32_t Main_bDedicatedServer = 0;
 int32_t Main_bAutostart = 0;
@@ -111,6 +119,58 @@ int32_t Main_bEnhancedCogVerbs = 0;
 char Main_strEpisode[129];
 char Main_strMap[128+4];
 static char Main_strAutostartCharacter[32];
+// Added: dedicated server connection (-connection, -relayServer, -webLobby)
+static char Main_strConnection[32];
+static char Main_strNetServer[256];
+static int Main_listenPort = 0;   // Added: -port, a dedicated server's own server (see Main_StartupDedicated)
+static int Main_wsPort = 0;       // Added: -wsPort, its WebSocket port for browser players (0 = none)
+static char Main_strMaster[256];  // Added: -master, the relay server a dedicated server lists itself on
+#endif
+
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+// Added: a dedicated server's map rotation: "maps" in server.json (in that order,
+// or shuffled with "shuffleMaps"), each "level" or "GOB:level" from any episode in
+// the episode folder (a bare level: the server's first episode first; jkMain_FindLevel).
+// The first one is the first level unless the command line names one.
+#define MAIN_MAX_MAPS 32
+#define MAIN_MAP_LEN  64   // "level" or "GOB:level"
+static char Main_aMaps[MAIN_MAX_MAPS][MAIN_MAP_LEN];
+static int Main_numMaps = 0;
+static int Main_mapIdx = 0;
+static int Main_bShuffleMaps = 0;
+
+static void Main_LoadRotation(void)
+{
+    char aList[512];
+    int n = 0;
+    Main_numMaps = stdJSON_GetStringList(SERVER_FNAME, "maps", &Main_aMaps[0][0], MAIN_MAX_MAPS, MAIN_MAP_LEN);
+    Main_bShuffleMaps = wuRegistry_GetBool("shuffleMaps", 0);
+    for (int i = 0; i < Main_numMaps; i++)
+        n += stdString_snprintf(aList + n, sizeof(aList) - n, "%s%s", i ? ", " : "", Main_aMaps[i]);
+    Main_mapIdx = (Main_bShuffleMaps && Main_numMaps) ? (int)(_frand() * Main_numMaps) % Main_numMaps : 0;
+    if (Main_numMaps > 1)
+        stdLog_Printf("server", "maps: %s (%s)", aList, Main_bShuffleMaps ? "shuffled" : "in this order");
+}
+
+// Moves the rotation on and returns the next map pResolve finds ("GOB:level.jkl",
+// any episode), NULL without a rotation (fewer than 2 maps) or if none is found.
+const char* Main_NextRotationMap(int (*pResolve)(const char* pSpec, char* pOut, size_t outLen))
+{
+    static char aFound[128];
+    if (Main_numMaps < 2)
+        return NULL;
+    for (int tries = 0; tries < Main_numMaps; tries++)
+    {
+        if (Main_bShuffleMaps)
+            Main_mapIdx = (Main_mapIdx + 1 + (int)(_frand() * (Main_numMaps - 1)) % (Main_numMaps - 1)) % Main_numMaps;
+        else
+            Main_mapIdx = (Main_mapIdx + 1) % Main_numMaps;
+        if (pResolve(Main_aMaps[Main_mapIdx], aFound, sizeof(aFound)))
+            return aFound;
+        stdLog_Printf("server", "map %s not found (episode folder), skipped", Main_aMaps[Main_mapIdx]);
+    }
+    return NULL;
+}
 #endif
 
 #if defined(QOL_IMPROVEMENTS)
@@ -154,6 +214,9 @@ int Main_StartupDedicated(int bFullyDedicated)
     }
     strcat(Main_strMap, ".jkl");
     stdPlatform_Printf("Autostarting level: `%s`\n", Main_strMap);
+    stdLog_Printf("server", "%s starting", bFullyDedicated ? "dedicated server" : "autostart"); // Added
+    if (bFullyDedicated)
+        stdLog_Printf("server", "settings: %s", SERVER_FNAME); // Added
 
     if (bFullyDedicated) {
         strcpy(aTmpPlayerShortName, "ServerDed");
@@ -215,6 +278,9 @@ int Main_StartupDedicated(int bFullyDedicated)
     }
 
     wuRegistry_GetWString("gameName", v34.serverName, 32, u"OpenJKDF2 Dedicated Server");
+    // Altered: jkGuiNetHost_SaveSettings above saves an empty "gameName" on a new profile
+    if (!v34.serverName[0])
+        stdString_SafeWStrCopy(v34.serverName, u"OpenJKDF2 Dedicated Server", 32);
     wuRegistry_GetWString("serverPassword", v34.wPassword, 32, u"");
 #ifndef TARGET_DREAMCAST // TODO writable config
     wuRegistry_GetStr("serverEpisodeGob", v34.episodeGobName, 32, Main_strEpisode);
@@ -222,6 +288,27 @@ int Main_StartupDedicated(int bFullyDedicated)
 #else
     stdString_SafeStrCopy(v34.episodeGobName, Main_strEpisode, 32);
     stdString_SafeStrCopy(v34.mapJklFname, Main_strMap, 32);
+#endif
+#ifdef PLATFORM_DPLAY
+    // Added: the rotation's first map, unless the command line named one
+    if (bFullyDedicated)
+    {
+        Main_LoadRotation();
+        if (Main_numMaps && !bExplicitMap)
+        {
+            // "level" (looked for in serverEpisodeGob first) or "GOB:level"
+            char aFound[128];
+            char* pColon;
+            if (jkMain_FindLevel(Main_aMaps[Main_mapIdx], v34.episodeGobName, aFound, sizeof(aFound)) && (pColon = strchr(aFound, ':')))
+            {
+                *pColon = 0;
+                stdString_SafeStrCopy(v34.episodeGobName, aFound, 32);
+                stdString_SafeStrCopy(v34.mapJklFname, pColon + 1, 32);
+            }
+            else
+                stdLog_Printf("server", "map %s not found (episode folder), starting with %s", Main_aMaps[Main_mapIdx], v34.mapJklFname);
+        }
+    }
 #endif
 
     if (_wcslen(v34.wPassword)) {
@@ -268,17 +355,132 @@ int Main_StartupDedicated(int bFullyDedicated)
     }
 
 
+    // Added: say what the limits are; "timeLimit" is in milliseconds (the host
+    // screen saves minutes * 60000), so a small number ends every level at once.
+    if (bFullyDedicated)
+    {
+        char aLimits[160];
+        int n = 0;
+        if (v34.multiModeFlags & MULTIMODEFLAG_TIMELIMIT)
+            n += stdString_snprintf(aLimits + n, sizeof(aLimits) - n, "time limit %d s", v34.timeLimit / 1000);
+        if (v34.multiModeFlags & MULTIMODEFLAG_SCORELIMIT)
+            n += stdString_snprintf(aLimits + n, sizeof(aLimits) - n, "%sscore limit %d", n ? ", " : "", v34.scoreLimit);
+        stdString_snprintf(aLimits + n, sizeof(aLimits) - n, "%s%s", n ? ", " : "",
+                           (v34.multiModeFlags & MULTIMODEFLAG_SINGLE_LEVEL) ? "this level over and over" : "the episode's levels in turn");
+        stdLog_Printf("server", "%s", aLimits);
+        if ((v34.multiModeFlags & MULTIMODEFLAG_TIMELIMIT) && v34.timeLimit < 60000)
+            stdLog_Printf("server", "\"timeLimit\" is in milliseconds: %d is %.1f s (30 minutes is 1800000)",
+                          v34.timeLimit, v34.timeLimit / 1000.0);
+    }
+
     if (!Main_bAutostartSp) {
-        int v21 = sithMulti_CreatePlayer(
-              v34.serverName,
-              v34.wPassword,
-              v34.episodeGobName,
-              v34.mapJklFname,
-              v34.maxPlayers,
-              v34.sessionFlags,
-              v34.multiModeFlags,
-              v34.tickRateMs,
-              v34.maxRank);
+#ifdef PLATFORM_DPLAY
+        // Added: open the connection the menu would have (a dedicated server
+        // defaults to the Imperial Network Protocol relay). Without one the game ran on its own, unjoinable.
+        // A dedicated server's settings come from server.json (wuRegistry_UseServerFile);
+        // the command line wins over each.
+        int bPortArg = Main_listenPort != 0;
+        if (bFullyDedicated)
+        {
+            if (!Main_strConnection[0])
+                wuRegistry_GetStr("connection", Main_strConnection, sizeof(Main_strConnection), "");
+            if (!Main_strConnection[0])
+                stdString_SafeStrCopy(Main_strConnection, "relay", sizeof(Main_strConnection));
+            if (!Main_strNetServer[0])
+                wuRegistry_GetStr(__strcmpi(Main_strConnection, "web") && __strcmpi(Main_strConnection, "weblobby") ? "relayServer" : "webLobbyUrl",
+                                  Main_strNetServer, sizeof(Main_strNetServer), "");
+            if (!Main_listenPort)
+                Main_listenPort = wuRegistry_GetInt("port", 0);
+            if (Main_listenPort <= 0 || Main_listenPort > 65535)
+                Main_listenPort = 0;
+            if (!Main_wsPort)
+                Main_wsPort = wuRegistry_GetInt("wsPort", 0);
+            if (Main_wsPort < 0 || Main_wsPort > 65535)
+                Main_wsPort = 0;
+            if (!Main_strMaster[0])
+                wuRegistry_GetStr("master", Main_strMaster, sizeof(Main_strMaster), "");
+        }
+        // Added: without a relay server (or with -port) it's its own Imperial Network
+        // Protocol server: players connect to this machine ("connect host[:port]").
+        if (bFullyDedicated && (!__strcmpi(Main_strConnection, "relay") || !__strcmpi(Main_strConnection, "imperial")
+                                || !__strcmpi(Main_strConnection, "online"))
+            && (!Main_strNetServer[0] || bPortArg))
+        {
+            int port = Main_listenPort ? Main_listenPort : JKR_DEFAULT_SERVER_PORT;
+            if (!stdComm_DPlay_Listen(port, Main_wsPort, Main_strMaster[0] ? Main_strMaster : NULL))
+            {
+                if (Main_wsPort)
+                    stdLog_Printf("server", "can't take UDP port %d or TCP port %d (wsPort), stopping", port, Main_wsPort);
+                else
+                    stdLog_Printf("server", "can't take UDP port %d, stopping", port);
+                exit(1);
+            }
+            if (Main_wsPort)
+                stdLog_Printf("server", "browser players: WebSockets on TCP %d (behind a wss:// proxy for https pages)", Main_wsPort);
+            stdString_snprintf(Main_strNetServer, sizeof(Main_strNetServer), "127.0.0.1:%d", port);
+            stdLog_Printf("server", "players join with: connect <this machine's address>%s", port == JKR_DEFAULT_SERVER_PORT ? "" : ":<port>");
+            if (Main_strMaster[0])
+                stdLog_Printf("server", "listing on master server %s", Main_strMaster);
+            jkServer_StartupDedicated(); // Added: rcon password, bans
+        }
+        else if (bFullyDedicated)
+        {
+            if (Main_strMaster[0])
+                stdLog_Printf("server", "\"master\" is only for a server of its own (no relay server set); ignored");
+            // Added: hosting on a relay server: rcon through it, and it does the kicks and bans
+            // (relay servers from 2026-10-29 on; older ones leave kicks to the kicked player's game)
+            if (!__strcmpi(Main_strConnection, "relay") || !__strcmpi(Main_strConnection, "imperial")
+                || !__strcmpi(Main_strConnection, "online"))
+            {
+                stdComm_DPlay_StartTunnel();
+                jkServer_StartupDedicated(); // rcon password, bans
+                stdLog_Printf("server", "rcon, kicks and bans go through the relay server %s", Main_strNetServer);
+            }
+        }
+        if (Main_strConnection[0]
+            && stdComm_DPlay_OpenConnectionNamed(Main_strConnection, Main_strNetServer))
+        {
+            stdLog_Printf("server", "no connection, stopping");
+            if (bFullyDedicated)
+                exit(1);
+        }
+#endif
+        int v21;
+        for (int attempt = 1; ; attempt++)
+        {
+            v21 = sithMulti_CreatePlayer(
+                  v34.serverName,
+                  v34.wPassword,
+                  v34.episodeGobName,
+                  v34.mapJklFname,
+                  v34.maxPlayers,
+                  v34.sessionFlags,
+                  v34.multiModeFlags,
+                  v34.tickRateMs,
+                  v34.maxRank);
+            // Added: the outcome, for the log
+            if (v21)
+                stdLog_Printf("server", "couldn't start the game (error %08x)", (unsigned)v21);
+            else
+                stdLog_Printf("server", "game started%s", bFullyDedicated ? " (dedicated)" : "");
+#if defined(PLATFORM_DPLAY) && defined(SDL2_RENDER)
+            // Added: a dedicated server keeps trying (the relay server may be down
+            // or restarting) instead of waiting on an error dialog nobody sees.
+            if (v21 && bFullyDedicated && stdComm_dword_8321DC)
+            {
+                int waitSecs = attempt < 4 ? 5 : 30;
+                stdLog_Printf("server", "trying again in %d s (attempt %d)", waitSecs, attempt);
+                SDL_Delay(waitSecs * 1000);
+                continue;
+            }
+#endif
+            break;
+        }
+        if (v21 && bFullyDedicated)
+        {
+            stdLog_Printf("server", "stopping");
+            exit(1);
+        }
         if ( v21 == 0x88770118 )
         {
             jkGuiDialog_ErrorDialog(jkStrings_GetUniStringWithFallback("GUINET_HOSTERROR"), jkStrings_GetUniStringWithFallback("GUINET_USERCANCEL"));
@@ -329,7 +531,11 @@ int Main_Startup(const char *cmdline)
 
     stdInitServices(&hs);
     jkGuiNetHost_maxRank = 4;
+#ifdef QOL_IMPROVEMENTS
+    jkGuiNetHost_maxPlayers = JKPLAYER_NUM_INFOS; // Added: every slot (32) by default, was 4 (as the browser build)
+#else
     jkGuiNetHost_maxPlayers = 4;
+#endif
     Video_modeStruct.geoMode = 4;
     pHS = &hs;
     jkPlayer_setFullSubtitles = 1; // Added: Set subtitles as default for opening cutscene
@@ -340,9 +546,15 @@ int Main_Startup(const char *cmdline)
     jkPlayer_setSaberCam = 0;
     jkGuiNetHost_gameFlags = 144;
     jkGuiNetHost_scoreLimit = 100;
-    jkGuiNetHost_timeLimit = 30;
+    jkGuiNetHost_timeLimit = 30 * 60000; // Altered: milliseconds (was 30, which ended a dedicated server's level at once)
     jkGuiNetHost_sessionFlags = 0;
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    // Added: 50 ms default (vanilla 180). Below 100 ms the MP physics step is 150 Hz instead of 50 Hz
+    // (engine_config.h) and movement looks smoother; JK.EXE joiners clamp their own rate to 100-300.
+    jkGuiNetHost_tickRate = 50;
+#else
     jkGuiNetHost_tickRate = 180;
+#endif
     Video_modeStruct.modeIdx = 0;
     Video_modeStruct.descIdx = 0;
     Video_modeStruct.Video_8605C8 = 0;
@@ -368,6 +580,11 @@ int Main_Startup(const char *cmdline)
     jkGuiSound_musicVolume = 1.0;
     stdPlatform_Printf("%s\n", Main_path);
     Main_ParseCmdLine((char *)cmdline);
+#ifdef PLATFORM_DPLAY
+    // Added: a dedicated server's hosting settings live in server.json
+    if (Main_bDedicatedServer)
+        wuRegistry_UseServerFile();
+#endif
 #ifdef TARGET_TWL
     Main_bNoHUD = 1;
 #endif
@@ -640,6 +857,10 @@ void Main_Shutdown()
     memset(Main_strEpisode, 0, sizeof(Main_strEpisode));
     memset(Main_strMap, 0, sizeof(Main_strMap));
     memset(Main_strAutostartCharacter, 0, sizeof(Main_strAutostartCharacter));
+    memset(Main_strConnection, 0, sizeof(Main_strConnection)); // Added
+    memset(Main_strNetServer, 0, sizeof(Main_strNetServer)); // Added
+    Main_listenPort = 0; // Added
+    memset(Main_strMaster, 0, sizeof(Main_strMaster)); // Added
 
     stdPlatform_Printf("OpenJKDF2: %s done\n", __func__);
 
@@ -791,6 +1012,53 @@ void Main_ParseCmdLine(char *cmdline)
                 exit(6);
             }
             stdString_SafeStrCopy(Main_strAutostartCharacter, name, sizeof(Main_strAutostartCharacter));
+        }
+        // Added: the log file, started by stdLog_StartFromArgs in main() before this runs
+        else if (!__strcmpi(pArgTok, "-log") || !__strcmpi(pArgTok, "/log")
+                 || !__strcmpi(pArgTok, "-noLog") || !__strcmpi(pArgTok, "/noLog"))
+        {
+        }
+        else if (!__strcmpi(pArgTok, "-logFile") || !__strcmpi(pArgTok, "/logFile"))
+        {
+            _strtok(0, " \t");
+        }
+        // Added: a dedicated server's settings file instead of server.json, so several
+        // servers can run from one folder
+        else if (!__strcmpi(pArgTok, "-serverConfig") || !__strcmpi(pArgTok, "/serverConfig"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) stdString_SafeStrCopy(Main_strServerConfig, pArgNext, sizeof(Main_strServerConfig));
+        }
+        // Added: the connection a dedicated server hosts on, and its server
+        else if (!__strcmpi(pArgTok, "-connection") || !__strcmpi(pArgTok, "/connection"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) stdString_SafeStrCopy(Main_strConnection, pArgNext, sizeof(Main_strConnection));
+        }
+        else if (!__strcmpi(pArgTok, "-relayServer") || !__strcmpi(pArgTok, "/relayServer")
+                 || !__strcmpi(pArgTok, "-webLobby") || !__strcmpi(pArgTok, "/webLobby"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) stdString_SafeStrCopy(Main_strNetServer, pArgNext, sizeof(Main_strNetServer));
+            if (!Main_strConnection[0])
+                stdString_SafeStrCopy(Main_strConnection, __strcmpi(pArgTok + 1, "webLobby") ? "relay" : "web", sizeof(Main_strConnection));
+        }
+        else if (!__strcmpi(pArgTok, "-master") || !__strcmpi(pArgTok, "/master"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) stdString_SafeStrCopy(Main_strMaster, pArgNext, sizeof(Main_strMaster));
+        }
+        else if (!__strcmpi(pArgTok, "-wsPort") || !__strcmpi(pArgTok, "/wsPort"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) Main_wsPort = atoi(pArgNext);
+            if (Main_wsPort <= 0 || Main_wsPort > 65535) Main_wsPort = 0;
+        }
+        else if (!__strcmpi(pArgTok, "-port") || !__strcmpi(pArgTok, "/port"))
+        {
+            char* pArgNext = _strtok(0, " \t");
+            if (pArgNext) Main_listenPort = atoi(pArgNext);
+            if (Main_listenPort <= 0 || Main_listenPort > 65535) Main_listenPort = 0;
         }
         else if (!__strcmpi(pArgTok, "-headless") || !__strcmpi(pArgTok, "/headless") )
         {

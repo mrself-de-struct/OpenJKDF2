@@ -6,15 +6,15 @@ macro(plat_link_and_package)
         target_link_libraries(sith_engine PRIVATE PhysFS::PhysFS_s)
         target_link_libraries(${BIN_NAME} PRIVATE PhysFS::PhysFS_s)
     endif()
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        target_link_libraries(sith_engine PRIVATE GameNetworkingSockets::GameNetworkingSockets)
-    endif()
 
     target_link_libraries(sith_engine PRIVATE nlohmann_json::nlohmann_json)
     target_link_libraries(sith_engine PRIVATE dl) # dlopen, dlsym
 
     if(TARGET_USE_CURL)
         target_link_libraries(sith_engine PRIVATE curl)
+    endif()
+    if(TARGET_USE_WEBRTC)
+        target_link_libraries(sith_engine PRIVATE ${WEBRTC_LIBS})
     endif()
 endmacro()
 
@@ -32,13 +32,6 @@ macro(plat_extra_deps)
         add_definitions(${LIBCURL_STATIC_CFLAGS_OTHER})
     endif()
 
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        add_custom_command(
-            TARGET ${BIN_NAME}
-            POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/GameNetworkingSockets/bin/libGameNetworkingSockets.so ${PROJECT_BINARY_DIR}
-        )
-    endif()
 
     # Strip release binaries
     if(CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL MinSizeRel)

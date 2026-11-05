@@ -654,6 +654,11 @@ flex_t sithCollision_MoveThing(SithThing *pThing, rdVector3 *moveNorm, flex_t mo
     rdVector3 out; // [esp+3Ch] [ebp-18h] BYREF
     rdVector3 v72; // [esp+48h] [ebp-Ch] BYREF
     SithSector* sectTmp;
+    // Added: riders and how far they were moved, see below
+    SithThing* aRiders[SITH_MAX_MOVED_RIDERS];
+    flex_t aRiderMoved[SITH_MAX_MOVED_RIDERS];
+    int numRiders = 0;
+    rdVector3 riderDir;
 
     v64 = 0.0;
     v65 = 0.0;
@@ -686,6 +691,11 @@ flex_t sithCollision_MoveThing(SithThing *pThing, rdVector3 *moveNorm, flex_t mo
             continue;
 
         v11 = sithCollision_MoveThing(v10, moveNorm, moveDist, RAYCAST_40);
+        if (numRiders < SITH_MAX_MOVED_RIDERS)
+        {
+            aRiders[numRiders] = v10;
+            aRiderMoved[numRiders++] = v11;
+        }
         if ( v11 >= moveDist ) continue;
         
         if ( (v10->attach_flags & SITH_ATTACH_THINGFACE) != 0 )
@@ -886,6 +896,21 @@ LABEL_81:
         }
     }
 
+    // Altered: riders were moved the full distance before their path-moved parent (elevator)
+    // found out it was blocked, e.g. by an actor below it. They sank into it a little every
+    // frame, faster than attached physics lifts them back, until they fell through and were
+    // crushed. Move them back by the distance the parent didn't make.
+    if (v5->moveType == SITH_MT_PATH)
+    {
+        rdVector_Neg3(&riderDir, moveNorm);
+        for (int r = 0; r < numRiders; r++)
+        {
+            flex_t back = stdMath_ClipNearZero(aRiderMoved[r] - v64);
+            if (back > 0.0 && aRiders[r]->attachedThing == v5)
+                sithCollision_MoveThing(aRiders[r], &riderDir, back, RAYCAST_40);
+        }
+    }
+
     // Restore ordinary attached children when the parent's movement
     // was completely blocked. The children may have moved before
     // the parent's collision was resolved.
@@ -1025,7 +1050,15 @@ int sithCollision_ThingCollisionHandler(SithThing *pSrcThing, SithThing *pThingC
     if ( v4->moveType != SITH_MT_PHYSICS || v4->physicsParams.mass == 0.0 )
     {
         if ( v5->moveType != SITH_MT_PHYSICS || v5->physicsParams.mass == 0.0 )
+        {
+            // Altered: a door/elevator grazing an immovable thing (e.g. the 0-mass AT-ST)
+            // was blocked even when moving almost parallel to it. 19b's airlock door
+            // drifts a hair sideways while opening, and its cog closes it when blocked.
+            if ( v4->moveType == SITH_MT_PATH
+                 && -rdVector_Dot3(&v4->field_268, &a2) <= rdVector_Len3(&v4->field_268) * 0.02 )
+                return 0;
             return 1;
+        }
         v11 = rdVector_Dot3(&v4->field_268, &a2);
         v11 = stdMath_ClipNearZero(v11);
         if ( v11 < 0.0 )

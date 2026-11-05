@@ -129,6 +129,10 @@ void jkMain_do_guistate6();
 int jkMain_sub_4034D0(char *a1, char *a2, char *a3, char16_t *a4);
 int jkMain_MissionReload();
 int jkMain_MenuReturn();
+void jkMain_LevelEnding(void); // Added: map rotation (PLATFORM_DPLAY)
+int jkMain_SetNextMap(const char* pSpec); // Added: console map/nextmap (PLATFORM_DPLAY)
+int jkMain_FindLevel(const char* pSpec, const char* pPrefer, char* pOut, size_t outLen);
+const char* jkMain_GetForcedNextMap(void);
 
 int jkMain_EndLevel(int bIsAPath);
 void jkMain_CdSwitchShow(int a1, int a2);

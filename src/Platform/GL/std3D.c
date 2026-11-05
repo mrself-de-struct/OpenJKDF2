@@ -783,6 +783,13 @@ int std3D_StartScene()
     std3D_swapFramebuffers();
     
     double supersample_level = jkPlayer_ssaaMultiple; // Can also be set lower
+#ifdef ARCH_WASM
+    // Added: the box takes any number, and since display settings are kept between
+    // visits, a high one stays. 0 or less made an empty buffer.
+    if (supersample_level > WASM_MAX_SSAA_MULTIPLE) supersample_level = WASM_MAX_SSAA_MULTIPLE;
+    if (supersample_level < 0.25) supersample_level = 0.25;
+    jkPlayer_ssaaMultiple = supersample_level; // the menu then shows, and saves, what's drawn
+#endif
     int32_t tex_w = (int32_t)((double)Window_xSize * supersample_level);
     int32_t tex_h = (int32_t)((double)Window_ySize * supersample_level);
 
@@ -3029,6 +3036,8 @@ int std3D_ClearZBuffer()
     // (scene start + the POV weapon's clear) so the software path stays in lockstep with the HW one.
     rdZRaster_ClearZBuffer();
 #endif
+    if (!std3D_pFb)
+        return 0; // Added: -headless, no OpenGL (a client in a game drew its first-person weapon)
     glDepthMask(GL_TRUE);
     glBindFramebuffer(GL_FRAMEBUFFER, std3D_pFb->fbo);
     glClear(GL_DEPTH_BUFFER_BIT);

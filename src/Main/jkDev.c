@@ -582,12 +582,18 @@ int jkDev_CmdVersion(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 int jkDev_CmdFramerate(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 {
     Main_bFrameRate = !Main_bFrameRate;
+    if ( !Main_bFrameRate && !Main_bDispStats )
+        jkDev_sub_41FC90(100); // Altered: turning it off left the last reading on screen
     return 1;
 }
 
 int jkDev_CmdDispStats(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 {
     Main_bDispStats = !Main_bDispStats;
+    if ( !Main_bFrameRate && !Main_bDispStats )
+        jkDev_sub_41FC90(100); // Altered: turning it off left the last reading on screen
+    if ( !Main_bDispStats )
+        jkDev_sub_41FC90(102); // Altered: and jkHud's force/item line
     return 1;
 }
 

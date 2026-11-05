@@ -93,6 +93,7 @@ void jkGuiRend_ElementSetClickShortcutScancode(jkGuiElement *element, int32_t id
 void jkGuiRend_MenuSetReturnKeyShortcutElement(jkGuiMenu *menu, jkGuiElement *element);
 void jkGuiRend_MenuSetEscapeKeyShortcutElement(jkGuiMenu *menu, jkGuiElement *element);
 int32_t jkGuiRend_DisplayAndReturnClicked(jkGuiMenu *menu);
+jkGuiMenu* jkGuiRend_GetActiveMenu(void); // Added
 void jkGuiRend_sub_50FAD0(jkGuiMenu *menu);
 void jkGuiRend_gui_sets_handler_framebufs(jkGuiMenu *menu);
 int32_t jkGuiRend_Menuidk();
@@ -100,6 +101,9 @@ void jkGuiRend_sub_50FDB0();
 void jkGuiRend_Startup();
 void jkGuiRend_Shutdown();
 int jkGuiRend_IsMenuActive(void);
+#ifdef QOL_IMPROVEMENTS
+int jkGuiRend_IsEscapeKeyClick(jkGuiElement *pElement); // Added
+#endif
 void jkGuiRend_Open(tVBuffer *menuBuffer, tVBuffer *otherBuf, int32_t fillColor);
 void jkGuiRend_Close();
 jkGuiElement* jkGuiRend_MenuGetClickableById(jkGuiMenu *menu, int32_t id);

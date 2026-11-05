@@ -8,7 +8,7 @@ command: openjkdf2
 finish-args:
   - --device=all # needed for gamepads
   - --share=ipc  # needed for X11
-  - --share=network # needed for networking (Multiplayer/Valve GameNetworkingSockets)
+  - --share=network # needed for networking (DirectPlay multiplayer)
   - --socket=fallback-x11
   - --socket=wayland
   - --socket=pulseaudio

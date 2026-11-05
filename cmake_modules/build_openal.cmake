@@ -34,6 +34,23 @@ else()
 endif()
 set(OPENAL_VERSION_STRING 1.23.1)
 
+# When building for Windows from Linux, OpenAL's configure finds the build
+# machine's PipeWire/PulseAudio/ALSA/JACK headers through pkg-config and tries
+# to compile those backends for Windows (e.g. pipewire: "sys/un.h: No such
+# file"). Windows only needs its own backends (WASAPI, DirectSound, WinMM).
+if(TARGET_WIN32)
+    set(ALSOFT_BACKEND_ARGS
+        -DALSOFT_BACKEND_PIPEWIRE:BOOL=FALSE
+        -DALSOFT_BACKEND_PULSEAUDIO:BOOL=FALSE
+        -DALSOFT_BACKEND_ALSA:BOOL=FALSE
+        -DALSOFT_BACKEND_JACK:BOOL=FALSE
+        -DALSOFT_BACKEND_OSS:BOOL=FALSE
+        -DALSOFT_BACKEND_SNDIO:BOOL=FALSE
+        -DALSOFT_BACKEND_PORTAUDIO:BOOL=FALSE)
+else()
+    set(ALSOFT_BACKEND_ARGS "")
+endif()
+
 ExternalProject_Add(
     OPENAL
     SOURCE_DIR          ${CMAKE_SOURCE_DIR}/lib/openal
@@ -61,6 +78,11 @@ ExternalProject_Add(
                         -DALSOFT_CPUEXT_SSE4_1:BOOL=${CAN_WE_SSE}
                         -DALSOFT_STATIC_LIBGCC:BOOL=${ALSOFT_STATIC_LIBGCC}
                         -DALSOFT_STATIC_STDCXX:BOOL=${ALSOFT_STATIC_STDCXX}
+                        ${ALSOFT_BACKEND_ARGS}
+                        # This OpenAL (2023) relies on <cstdint> arriving through other
+                        # headers, which newer GCCs (14+) no longer do: "found ':' in
+                        # nested-name-specifier" at "enum CompatFlags : uint8_t".
+                        "-DCMAKE_CXX_FLAGS:STRING=$ENV{CXXFLAGS} -include cstdint"
                         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     CMAKE_CACHE_ARGS    -DEXTRA_LIBS:STRINGS=${EXTRA_LIBS}
     BUILD_BYPRODUCTS    ${OPENAL_LIBRARY}

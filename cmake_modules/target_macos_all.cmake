@@ -41,8 +41,6 @@ macro(postcompile_macos)
         COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/${BIN_NAME} ${BUNDLE}/Contents/MacOS
         
         
-        COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSockets/bin/libGameNetworkingSockets.dylib ${BUNDLE}/Contents/MacOS
-        COMMAND install_name_tool -change @rpath/libGameNetworkingSockets.dylib @executable_path/libGameNetworkingSockets.dylib ${BUNDLE}/Contents/MacOS/${BIN_NAME}
 
         # zlib
         COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/zlib/*/*/libz.1.dylib ${BUNDLE}/Contents/MacOS
@@ -53,11 +51,6 @@ macro(postcompile_macos)
         COMMAND install_name_tool -change libopenal.1.dylib @executable_path/libopenal.1.dylib ${BUNDLE}/Contents/MacOS/${BIN_NAME}
         COMMAND install_name_tool -change @rpath/libopenal.1.dylib @executable_path/libopenal.1.dylib ${BUNDLE}/Contents/MacOS/${BIN_NAME}
 
-        COMMAND install_name_tool -change ${OPENSSL_CRYPTO_LIBRARY} @executable_path/libcrypto.dylib ${BUNDLE}/Contents/MacOS/libGameNetworkingSockets.dylib
-        COMMAND install_name_tool -change ${OPENSSL_CRYPTO_LIBRARY} @executable_path/libcrypto.dylib ${BUNDLE}/Contents/MacOS/${BIN_NAME}
-        COMMAND install_name_tool -change ${HOMEBREW_PREFIX}/opt/openssl@3/lib/libcrypto.3.dylib @executable_path/libcrypto.dylib ${BUNDLE}/Contents/MacOS/libGameNetworkingSockets.dylib
-        COMMAND install_name_tool -change ${HOMEBREW_PREFIX}/opt/openssl@3/lib/libcrypto.3.dylib @executable_path/libcrypto.dylib ${BUNDLE}/Contents/MacOS/${BIN_NAME}
-        COMMAND cp ${OPENSSL_CRYPTO_LIBRARY} ${BUNDLE}/Contents/MacOS/libcrypto.dylib
 
         COMMAND chmod 774 ${BUNDLE}/Contents/MacOS/*.dylib
         COMMAND cp -r ${CMAKE_CURRENT_BINARY_DIR}/openjkdf2-64.dsym ${BUNDLE}/Contents/MacOS/openjkdf2-64.dsym
@@ -84,8 +77,8 @@ macro(plat_link_and_package)
         target_link_libraries(sith_engine PRIVATE PhysFS::PhysFS_s)
         target_link_libraries(${BIN_NAME} PRIVATE PhysFS::PhysFS_s)
     endif()
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        target_link_libraries(sith_engine PRIVATE GameNetworkingSockets::GameNetworkingSockets)
+    if(TARGET_USE_WEBRTC)
+        target_link_libraries(sith_engine PRIVATE ${WEBRTC_LIBS})
     endif()
 
     #
@@ -99,9 +92,4 @@ macro(plat_extra_deps)
 
     find_package(PkgConfig REQUIRED)
 
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        find_package(OpenSSL REQUIRED Crypto)
-        target_link_libraries(sith_engine PUBLIC OpenSSL::Crypto)
-        
-    endif()
 endmacro()

@@ -17,6 +17,21 @@
 
 static int jkRes_bInit;
 
+// Added: with JKRES_PACKS_ONLY, this one file opens only from a graphics
+// pack's GOB (one in mods/). Others, like the materials of a model it is,
+// open as usual.
+static int jkRes_packFilter = JKRES_PACKS_ALL;
+static char jkRes_packFilterFpath[128];
+
+// Added: whether the last file jkRes_FileOpen opened came from a graphics pack
+static int jkRes_bOpenedFromPack = 0;
+
+// Added: whether a GOB is a graphics pack, one jkRes_LoadNew loaded from mods/
+static int jkRes_IsPackGob(Gob* pGob)
+{
+    return !__strnicmp(pGob->fpath, "mods", 4) && (pGob->fpath[4] == '/' || pGob->fpath[4] == '\\');
+}
+
 int jkRes_Startup(HostServices *a1)
 {
     stdPlatform_Printf("OpenJKDF2: %s\n", __func__);
@@ -253,6 +268,18 @@ int jkRes_ReadKey()
     return 0;
 }
 
+#ifdef PLATFORM_DPLAY
+// Added: set while a web lobby game needs us to run without the MotS
+// Remastered pack (the host doesn't run it); see stdComm_dplay.c. Lasts
+// through the engine restart that applies it.
+int jkRes_bSkipRemasterPack = 0;
+
+static int jkRes_IsSkippedGob(const char* fname)
+{
+    return jkRes_bSkipRemasterPack && Main_bMotsCompat && !__strcmpi(fname, "jkmremasteredassets.goo");
+}
+#endif
+
 int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3)
 {
     stdFileSearch *v15; // ebp
@@ -275,6 +302,10 @@ int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3)
                 break;
             if ( v18.fpath[0] != '.' )
             {
+#ifdef PLATFORM_DPLAY
+                if (jkRes_IsSkippedGob(v18.fpath))
+                    continue;
+#endif
                 stdString_snprintf(jkRes_idkGobPath, 0x80u, "%s%c%s", "mods", LEC_PATH_SEPARATOR_CHR, v18.fpath);
                 resGob->gobs[resGob->numGobs] = stdGob_Load(jkRes_idkGobPath, 16, 0);
 
@@ -292,6 +323,10 @@ int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3)
             break;
         if ( v18.fpath[0] != '.' )
         {
+#ifdef PLATFORM_DPLAY
+            if (!_strcmp(name, "resource") && jkRes_IsSkippedGob(v18.fpath))
+                continue;
+#endif
             stdString_snprintf(jkRes_idkGobPath, 0x80u, "%s%c%s", name, LEC_PATH_SEPARATOR_CHR, v18.fpath);
             resGob->gobs[resGob->numGobs] = stdGob_Load(jkRes_idkGobPath, 16, 0);
 
@@ -498,11 +533,13 @@ stdFile_t jkRes_FileOpen(const char *fpath, const char *mode)
     if ( resIdx >= 0x20 )
         return (stdFile_t)0;
     v6 = 0;
+    jkRes_bOpenedFromPack = 0; // Added
+    int bPacksOnly = jkRes_packFilter == JKRES_PACKS_ONLY && !__strcmpi(fpath, jkRes_packFilterFpath); // Added
 
 #ifndef TARGET_TWL
     // Try in the EXE root (not in resource/), ex "3do\key\kysabrf2.key"
     // This was also used for `player/...` and `controls/...`
-    hGobFile = pLowLevelHS->fileOpen(fpath, mode);
+    hGobFile = bPacksOnly ? (stdFile_t)0 : pLowLevelHS->fileOpen(fpath, mode); // Added: bPacksOnly
     if ( hGobFile )
     {
         v8 = resIdx;
@@ -523,9 +560,10 @@ stdFile_t jkRes_FileOpen(const char *fpath, const char *mode)
             // Try in episode/[episode name], resource/, etc
             // ex: "episode\JK1\3do\key\kysabrf2.key", "resource/3do\key\kysabrf2.key"
             stdString_snprintf(jkRes_idkGobPath, 0x80u, "%s%c%s", v11, LEC_PATH_SEPARATOR_CHR, fpath);
-            v12 = pLowLevelHS->fileOpen(jkRes_idkGobPath, mode);
+            v12 = bPacksOnly ? (stdFile_t)0 : pLowLevelHS->fileOpen(jkRes_idkGobPath, mode); // Added: bPacksOnly
             if ( v12 )
             {
+                jkRes_bOpenedFromPack = 0; // Added
                 v13 = resIdx;
                 jkRes_aFiles[v13].useLowLevel = 1;
                 jkRes_aFiles[v13].fsHandle = v12;
@@ -542,9 +580,12 @@ stdFile_t jkRes_FileOpen(const char *fpath, const char *mode)
                     v17 = &jkRes_gCtx.aGobDirectories[v19].gobs[v18];
                     if ( v6 )
                         break;
+                    if (bPacksOnly && !jkRes_IsPackGob(*v17)) // Added
+                        continue;
                     v14 = stdGob_FileOpen(*v17, fpath);
                     if ( v14 )
                     {
+                        jkRes_bOpenedFromPack = jkRes_IsPackGob(*v17); // Added
                         v15 = resIdx;
                         jkRes_aFiles[v15].useLowLevel = 0;
                         jkRes_aFiles[v15].gobHandle = v14;
@@ -564,6 +605,36 @@ stdFile_t jkRes_FileOpen(const char *fpath, const char *mode)
         return (stdFile_t)0;
     }
     return (stdFile_t)(resIdx + 1);
+}
+
+// Added
+void jkRes_SetPackFilter(int filter, const char* fpath)
+{
+    jkRes_packFilter = filter;
+    stdString_SafeStrCopy(jkRes_packFilterFpath, fpath ? fpath : "", sizeof(jkRes_packFilterFpath));
+}
+
+// Added: whether a graphics pack has this file while another copy opens
+// ahead of it: a gameplay mod's (-path, which mods load into), an episode's
+// or a loose file. The game's own GOBs come after the packs.
+int jkRes_IsPackOutranked(const char* fpath)
+{
+    stdFile_t fd;
+    int bFromPack;
+
+    jkRes_SetPackFilter(JKRES_PACKS_ONLY, fpath);
+    fd = jkRes_FileOpen(fpath, "rb");
+    jkRes_SetPackFilter(JKRES_PACKS_ALL, NULL);
+    if (!fd)
+        return 0;
+    jkRes_FileClose(fd);
+
+    fd = jkRes_FileOpen(fpath, "rb");
+    if (!fd)
+        return 0;
+    bFromPack = jkRes_bOpenedFromPack;
+    jkRes_FileClose(fd);
+    return !bFromPack;
 }
 
 int jkRes_FileClose(stdFile_t fd)

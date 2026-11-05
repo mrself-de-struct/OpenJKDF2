@@ -42,6 +42,14 @@
 #include "Win95/Windows.h"
 #include "Win95/Video.h"
 #include "Win95/stdComm.h"
+#include "Main/Main.h" // Added: Main_NextRotationMap
+#include "Win95/stdGob.h" // Added: jkMain_FindLevel
+#include "General/stdFileUtil.h"
+#include "General/stdFnames.h"
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+static void jkMain_FollowHostMap(void); // Added: map rotation
+static char jkMain_aMissingMap[128];  // Added: joiner: the host went on to a level we don't have
+#endif
 #include "Win95/stdDisplay.h"
 #include "Win95/Window.h"
 #include "General/util.h"
@@ -446,6 +454,13 @@ void jkMain_EscapeMenuLeave(int a2, int a3)
             if ( sithNet_isServer )
                 DirectPlay_SetSessionFlagidk(0);
             jkMain_bInModalGui = 1;
+#ifdef PLATFORM_DPLAY
+            // Added: the server asked everyone to reconnect: no scores (which wait for a
+            // click once the game is gone), straight on to the menus, which join again
+            if ( stdComm_DPlay_RejoinAsked() )
+                v3 = -1;
+            else
+#endif
             v3 = jkGuiMultiTally_Show(sithNet_isMulti);
             jkMain_bInModalGui = 0;
             if ( v3 == -1 )
@@ -552,6 +567,10 @@ void jkMain_GameplayShow(int a1, int a2)
         }
         else
         {
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+            if ( jkSmack_gameMode == 2 )
+                jkMain_FollowHostMap(); // Added: a dedicated host's next level
+#endif
             jkGui_copies_string(jkMain_aLevelJklFname);
             jkGuiTitle_ShowLoading(jkMain_aLevelJklFname, 0);
         }
@@ -598,6 +617,19 @@ void jkMain_GameplayShow(int a1, int a2)
             jkSmack_nextGuiState = JK_GAMEMODE_MAIN;
             v6 = jkStrings_GetUniStringWithFallback("ERR_CANNOT_LOAD_LEVEL");
             v4 = jkStrings_GetUniStringWithFallback("ERROR");
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+            // Added: the dedicated host went on to a level we don't have
+            if ( jkMain_aMissingMap[0] )
+            {
+                static char16_t wMsg[256];
+                char aMsg[256];
+                stdString_snprintf(aMsg, sizeof(aMsg), "The server went on to %s, which you don't have.", jkMain_aMissingMap);
+                stdString_CharToWchar(wMsg, aMsg, 255);
+                wMsg[255] = 0;
+                v6 = wMsg;
+                jkMain_aMissingMap[0] = 0;
+            }
+#endif
             jkGuiDialog_ErrorDialog(v4, v6);
             return;
         }
@@ -824,6 +856,11 @@ void jkMain_GameplayLeave(int a2, int a3)
         if ( sithNet_isServer )
             DirectPlay_SetSessionFlagidk(0);
         jkMain_bInModalGui = 1;
+#ifdef PLATFORM_DPLAY
+        if ( stdComm_DPlay_RejoinAsked() ) // Added: as above
+            v3 = -1;
+        else
+#endif
         v3 = jkGuiMultiTally_Show(sithNet_isMulti);
         jkMain_bInModalGui = 0;
         if ( v3 == -1 )
@@ -1064,6 +1101,293 @@ int jkMain_LoadLevelSingleplayer(char *pGobPath, char *pEpisodeName)
     return result;
 }
 
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+// Added: a dedicated server's map rotation ("maps" in server.json, Main_NextRotationMap)
+// and admin map changes (Main/jkServer.c), across episodes too. A map is written
+// "GOB:level.jkl" here; "level" or "GOB:level" as typed (jkMain_FindLevel).
+
+// In the episode that's loaded.
+static int jkMain_LevelExists(const char* pJkl)
+{
+    char path[160];
+    intptr_t f;
+    if ( !jkRes_episodeGobName[0] )
+        return 0;
+    stdString_snprintf(path, sizeof(path), "jkl\\%s", pJkl);
+    f = pHS->fileOpen(path, "r");
+    if ( !f )
+        return 0;
+    pHS->fileClose(f);
+    return 1;
+}
+
+// In episode\<pGobFile> (with its extension), without loading it as the episode.
+static int jkMain_GobHasLevel(const char* pGobFile, const char* pJkl)
+{
+    char path[160], entry[160];
+    Gob* pGob;
+    int bFound = 0;
+    stdString_snprintf(path, sizeof(path), "episode%c%s", LEC_PATH_SEPARATOR_CHR, pGobFile);
+    stdString_snprintf(entry, sizeof(entry), "jkl\\%s", pJkl);
+    if ( !(pGob = stdGob_Load(path, 2, 0)) )
+        return 0;
+#ifndef STDGOB_COMPACT_ENTRIES
+    for ( uint32_t i = 0; i < pGob->numFiles && !bFound; i++ )
+        bFound = !__strcmpi(pGob->entries[i].fname, entry);
+#endif
+    stdGob_Free(pGob);
+    return bFound;
+}
+
+// Finds "level" or "GOB:level" (".jkl" and ".gob" optional): in GOB, else in
+// pPrefer (an episode name, may be NULL), the loaded episode, then every GOB in
+// the episode folder. pOut gets "GOB:level.jkl" with the GOB's name as it's
+// spelled on disk. 0 if it's nowhere.
+int jkMain_FindLevel(const char* pSpec, const char* pPrefer, char* pOut, size_t outLen)
+{
+    char aGob[64] = {0}, aJkl[64], aTry[3][64];
+    const char* pColon = strchr(pSpec, ':');
+    stdFileSearch* pSearch;
+    stdFileSearchResult res;
+    char* pExt;
+    int numTry = 0;
+
+    while ( *pSpec == ' ' ) pSpec++;
+    if ( pColon )
+    {
+        stdString_SafeStrCopy(aGob, pSpec, (size_t)(pColon - pSpec) + 1 < sizeof(aGob) ? (size_t)(pColon - pSpec) + 1 : sizeof(aGob));
+        if ( (pExt = strrchr(aGob, '.')) && !__strcmpi(pExt, ".gob") ) *pExt = 0;
+        pSpec = pColon + 1;
+    }
+    stdString_SafeStrCopy(aJkl, pSpec, sizeof(aJkl) - 4);
+    if ( !aJkl[0] )
+        return 0;
+    if ( !strchr(aJkl, '.') )
+        strcat(aJkl, ".jkl");
+
+    if ( aGob[0] )
+        stdString_SafeStrCopy(aTry[numTry++], aGob, 64);
+    else
+    {
+        if ( pPrefer && pPrefer[0] ) stdString_SafeStrCopy(aTry[numTry++], pPrefer, 64);
+        if ( jkRes_episodeGobName[0] ) stdString_SafeStrCopy(aTry[numTry++], jkRes_episodeGobName, 64);
+    }
+    for ( int i = 0; i < numTry; i++ )
+    {
+        if ( __strcmpi(aTry[i], jkRes_episodeGobName) || !jkMain_LevelExists(aJkl) )
+            continue;
+        stdString_snprintf(pOut, outLen, "%s:%s", jkRes_episodeGobName, aJkl); // also a folder episode
+        return 1;
+    }
+    if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+        return 0;
+    // The ones to try first, then (without a GOB given) all of them.
+    for ( int pass = 0; pass < 2; pass++ )
+    {
+        if ( pass == 1 )
+        {
+            if ( aGob[0] )
+                break;
+            stdFileUtil_DisposeFind(pSearch);
+            if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+                return 0;
+        }
+        while ( stdFileUtil_FindNext(pSearch, &res) )
+        {
+            char aName[64];
+            int bTry = (pass == 1);
+            if ( res.is_subdirectory || res.fpath[0] == '.' )
+                continue;
+            stdString_SafeStrCopy(aName, res.fpath, sizeof(aName));
+            if ( (pExt = strrchr(aName, '.')) ) *pExt = 0;
+            for ( int i = 0; i < numTry && !bTry; i++ )
+                bTry = !__strcmpi(aName, aTry[i]);
+            if ( !bTry || !jkMain_GobHasLevel(res.fpath, aJkl) )
+                continue;
+            stdFileUtil_DisposeFind(pSearch);
+            stdString_snprintf(pOut, outLen, "%s:%s", aName, aJkl);
+            return 1;
+        }
+    }
+    stdFileUtil_DisposeFind(pSearch);
+    return 0;
+}
+
+// "GOB:level.jkl" -> its parts.
+static void jkMain_SplitMap(const char* pMap, char* pGob, size_t gobLen, char* pJkl, size_t jklLen)
+{
+    const char* pColon = strchr(pMap, ':');
+    if ( !pColon )
+    {
+        stdString_SafeStrCopy(pGob, jkRes_episodeGobName, gobLen);
+        stdString_SafeStrCopy(pJkl, pMap, jklLen);
+        return;
+    }
+    stdString_SafeStrCopy(pGob, pMap, (size_t)(pColon - pMap) + 1 < gobLen ? (size_t)(pColon - pMap) + 1 : gobLen);
+    stdString_SafeStrCopy(pJkl, pColon + 1, jklLen);
+}
+
+// Loads another episode (its GOB and episode.jk) for the level pJkl, as joining a
+// game does (jkMain_loadFile2). 0 if it can't be loaded.
+static int jkMain_LoadEpisode(const char* pGob, const char* pJkl)
+{
+    char aGob[64];
+    stdString_SafeStrCopy(aGob, pGob, sizeof(aGob));
+    jkRes_LoadGob(aGob);
+    if ( jkEpisode_mLoad.paEntries )
+    {
+        JK_FREE(jkEpisode_mLoad.paEntries);
+        jkEpisode_mLoad.paEntries = 0;
+        jkMain_pEpisodeEnt = NULL;
+        jkMain_pEpisodeEnt2 = NULL;
+    }
+    if ( !jkEpisode_Load(&jkEpisode_mLoad) )
+        return 0;
+    jkEpisode_idk4(&jkEpisode_mLoad, (char*)pJkl);
+    jkPlayer_bLoadingSomething = 1;
+    return 1;
+}
+
+static int jkMain_SwitchEpisode(const char* pGob, const char* pJkl)
+{
+    char aOld[64];
+    if ( !__strcmpi(pGob, jkRes_episodeGobName) )
+        return 1;
+    stdString_SafeStrCopy(aOld, jkRes_episodeGobName, sizeof(aOld));
+    stdPlatform_Printf("OpenJKDF2: episode %s -> %s\n", aOld, pGob);
+    if ( jkMain_LoadEpisode(pGob, pJkl) )
+        return 1;
+    jkMain_LoadEpisode(aOld, jkMain_aLevelJklFname); // back to the one we had
+    return 0;
+}
+
+static char jkMain_aNextMap[128];    // host: the next map ("GOB:level.jkl"), picked when the level ended
+static char jkMain_aForcedMap[128];  // host: the next map an admin picked (console "map"/"nextmap")
+
+static int jkMain_IsDedicatedHost(void);
+
+// Rotation entries (Main_NextRotationMap): a bare level is looked for in the
+// server's first episode before the loaded one.
+static char jkMain_aHomeEpisode[64];
+static int jkMain_ResolveRotationMap(const char* pSpec, char* pOut, size_t outLen)
+{
+    if ( !jkMain_aHomeEpisode[0] )
+        stdString_SafeStrCopy(jkMain_aHomeEpisode, jkRes_episodeGobName, sizeof(jkMain_aHomeEpisode));
+    return jkMain_FindLevel(pSpec, jkMain_aHomeEpisode, pOut, outLen);
+}
+
+// Console "map"/"nextmap" (Main/jkServer.c): the next level, after this one ends.
+// 0 if there's no such level.
+int jkMain_SetNextMap(const char* pSpec)
+{
+    return jkMain_FindLevel(pSpec, NULL, jkMain_aForcedMap, sizeof(jkMain_aForcedMap));
+}
+
+// What the next level will be ("GOB:level.jkl"), as far as it's decided: an admin's pick, else NULL.
+const char* jkMain_GetForcedNextMap(void)
+{
+    return jkMain_aForcedMap[0] ? jkMain_aForcedMap : NULL;
+}
+
+// The host ends the level (jkDSS_SendEndLevel; it goes on for 10 s, then the
+// scores screen). A dedicated host picks the next map now (an admin's pick, else
+// its rotation's) and names it in the game's description, so its joiners have it
+// by the time they load it. Without either, everyone goes on as the episode says.
+void jkMain_LevelEnding(void)
+{
+    char aGob[64], aJkl[64];
+    const char* pNext;
+    jkMain_aNextMap[0] = 0;
+    if ( !sithNet_isMulti || !sithNet_isServer || !jkGuiNetHost_bIsDedicated )
+        return;
+    if ( jkMain_aForcedMap[0] )
+    {
+        stdString_SafeStrCopy(jkMain_aNextMap, jkMain_aForcedMap, sizeof(jkMain_aNextMap));
+        jkMain_aForcedMap[0] = 0;
+    }
+    else if ( (pNext = Main_NextRotationMap(jkMain_ResolveRotationMap)) )
+        stdString_SafeStrCopy(jkMain_aNextMap, pNext, sizeof(jkMain_aNextMap));
+    else
+    {
+        stdComm_DPlay_SetSessionMap(NULL, NULL); // joiners go on as the episode says
+        return;
+    }
+    jkMain_SplitMap(jkMain_aNextMap, aGob, sizeof(aGob), aJkl, sizeof(aJkl));
+    stdComm_DPlay_SetSessionMap(aGob, aJkl);
+    stdPlatform_Printf("OpenJKDF2: next map %s\n", jkMain_aNextMap);
+}
+
+// The host goes on to the next map it named (jkMain_LevelEnding), from another
+// episode too. 0 if it hasn't named one.
+static int jkMain_HostGoesOn(void)
+{
+    char aGob[64], aJkl[64];
+    if ( !jkMain_aNextMap[0] )
+        return 0;
+    jkMain_SplitMap(jkMain_aNextMap, aGob, sizeof(aGob), aJkl, sizeof(aJkl));
+    jkMain_aNextMap[0] = 0;
+    if ( !jkMain_SwitchEpisode(aGob, aJkl) )
+    {
+        // Found when it was picked, gone now: the server's first episode and map again
+        stdPlatform_Printf("OpenJKDF2: can't load episode %s\n", aGob);
+        return 0;
+    }
+    stdString_SafeStrCopy(jkMain_aLevelJklFname, aJkl, sizeof(jkMain_aLevelJklFname));
+    return 1;
+}
+
+// A joiner of a dedicated host, about to load the next level: the one the host
+// named when it ended the level, if it did (only through the Imperial Network
+// Protocol, where description changes reach us), in its episode. Otherwise its own
+// pick stands: the same level, or the episode's next, as the host's.
+static void jkMain_FollowHostMap(void)
+{
+    char aGob[64], aJkl[128];
+    jkMain_aMissingMap[0] = 0;
+    if ( sithNet_isServer || !jkMain_IsDedicatedHost() || !stdComm_DPlay_GetSessionNextMap(aGob, sizeof(aGob), aJkl, sizeof(aJkl)) )
+        return;
+    if ( !__strcmpi(aJkl, jkMain_aLevelJklFname) && (!aGob[0] || !__strcmpi(aGob, jkRes_episodeGobName)) )
+        return;
+    stdPlatform_Printf("OpenJKDF2: the host goes on with %s:%s\n", aGob, aJkl);
+    // Added: an episode we lack, or have another copy of: the host's, if it serves it
+    if ( aGob[0] && __strcmpi(aGob, jkRes_episodeGobName) )
+        stdComm_DPlay_FetchHostMap(aGob);
+    if ( aGob[0] && !jkMain_SwitchEpisode(aGob, aJkl) )
+    {
+        stdString_snprintf(jkMain_aMissingMap, sizeof(jkMain_aMissingMap), "%s (%s)", aJkl, aGob);
+        stdPlatform_Printf("OpenJKDF2: no episode %s here\n", aGob);
+    }
+    else if ( !jkMain_LevelExists(aJkl) )
+        stdString_snprintf(jkMain_aMissingMap, sizeof(jkMain_aMissingMap), "%s (%s)", aJkl, aGob);
+    stdString_SafeStrCopy(jkMain_aLevelJklFname, aJkl, sizeof(jkMain_aLevelJklFname));
+}
+
+// Joiners: does the host go on to a level it named? (Then its episode's own
+// order, which may end there, doesn't matter.)
+static int jkMain_HostNamedNextMap(void)
+{
+    char aGob[64], aJkl[128];
+    return sithNet_isMulti && !sithNet_isServer && jkMain_IsDedicatedHost()
+        && stdComm_DPlay_GetSessionNextMap(aGob, sizeof(aGob), aJkl, sizeof(aJkl));
+}
+#endif
+
+#ifdef QOL_IMPROVEMENTS
+// Added: the game's host is a dedicated server. Joiners see it as the host's
+// slot never being in the game (sithMulti_StartupServer sets it to 6, sent as 4).
+static int jkMain_IsDedicatedHost(void)
+{
+    if ( sithNet_isServer )
+        return jkGuiNetHost_bIsDedicated;
+    for (int i = 0; i < jkPlayer_maxPlayers; i++)
+    {
+        if ( jkPlayer_playerInfos[i].playerNetId && jkPlayer_playerInfos[i].playerNetId == sithNet_serverNetId )
+            return !(jkPlayer_playerInfos[i].flags & 1);
+    }
+    return 0;
+}
+#endif
+
 int jkMain_StartNextLevelInEpisode(int a1, int bIsAPath)
 {
     jkEpisodeEntry *v2; // eax
@@ -1102,6 +1426,21 @@ int jkMain_StartNextLevelInEpisode(int a1, int bIsAPath)
         jkMain_pEpisodeEnt2 = v2;
         jkPlayer_bLoadingSomething = 0;
     }
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    // Added: a dedicated server's next map (an admin's pick or its rotation's, from
+    // another episode too): the host goes on with the one it picked when the level
+    // ended, and its joiners follow (jkMain_FollowHostMap), whatever the episode's
+    // own order says (a one-level episode would end the game here).
+    if ( sithNet_isMulti && ((sithNet_isServer && jkMain_HostGoesOn()) || jkMain_HostNamedNextMap()) )
+    {
+        jkSmack_gameMode = 2;
+        if ( jkGuiRend_menuNestDepth )
+            jkGuiRend_bStateChangePending = 1;
+        jkSmack_stopTick = 1;
+        jkSmack_nextGuiState = JK_GAMEMODE_GAMEPLAY;
+        return 1;
+    }
+#endif
     if ( !v2 )
     {
         v4 = jkGuiRend_menuNestDepth;
@@ -1122,6 +1461,20 @@ int jkMain_StartNextLevelInEpisode(int a1, int bIsAPath)
     }
     if ( sithNet_isMulti && (sithNet_MultiModeFlags & MULTIMODEFLAG_SINGLE_LEVEL) != 0 )
     {
+#ifdef QOL_IMPROVEMENTS
+        // Added: with a dedicated host the level starts over instead of the game
+        // ending (which left the server idle with nothing to join). Everyone in the
+        // game works out the next level by itself, so joiners do the same.
+        if ( jkMain_IsDedicatedHost() )
+        {
+            jkSmack_gameMode = 2;
+            if ( jkGuiRend_menuNestDepth )
+                jkGuiRend_bStateChangePending = 1;
+            jkSmack_stopTick = 1;
+            jkSmack_nextGuiState = JK_GAMEMODE_GAMEPLAY; // jkMain_aLevelJklFname is still this level
+            return 1;
+        }
+#endif
         v4 = jkGuiRend_menuNestDepth;
         
         if ( v4 )

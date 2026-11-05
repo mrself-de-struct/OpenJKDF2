@@ -46,6 +46,13 @@ int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3);
 int jkRes_NewGob(jkResGobDirectory *gobFullpath, char *gobFolder, char *gobFname);
 int jkRes_LoadCD(int a1);
 
+// Added: graphics packs, the GOBs in mods/ (packaging/wasm/index.html,
+// OPTIONAL_PACKS). jkRes_SetPackFilter picks which copies of a file open.
+#define JKRES_PACKS_ALL (0)
+#define JKRES_PACKS_ONLY (1)
+void jkRes_SetPackFilter(int filter, const char* fpath); // Added
+int jkRes_IsPackOutranked(const char* fpath); // Added
+
 //static int (*jkRes_Startup)(HostServices *a1) = (void*)jkRes_Startup_ADDR;
 //static int (*jkRes_FileExists)(char *fpath, char *a2, int len) = (void*)jkRes_FileExists_ADDR;
 //static void (*jkRes_LoadGob)(char *a1) = (void*)jkRes_LoadGob_ADDR;
@@ -76,5 +83,10 @@ int jkRes_FilePrintf(stdFile_t fd, const char* fmt, ...);
 //static int (*jkRes_FSeek)() = (void*)jkRes_FSeek_ADDR;
 //static int (*jkRes_FileSize)() = (void*)jkRes_FileSize_ADDR;
 //static int (*jkRes_FilePrintf)() = (void*)jkRes_FilePrintf_ADDR;
+
+#ifdef PLATFORM_DPLAY
+// Added: skip JKMRemasteredAssets.goo in mods/ and resource/ (MotS) on the next load.
+extern int jkRes_bSkipRemasterPack;
+#endif
 
 #endif // _JKRES_H

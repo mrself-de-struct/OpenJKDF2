@@ -24,5 +24,6 @@ int Main_Startup(const char *cmdline);
 void Main_Shutdown();
 void Main_ParseCmdLine(char *cmdline);
 int Main_FPrintf(const char* fmt, ...);
+const char* Main_NextRotationMap(int (*pResolve)(const char* pSpec, char* pOut, size_t outLen)); // Added (PLATFORM_DPLAY)
 
 #endif // _MAINMAIN_H

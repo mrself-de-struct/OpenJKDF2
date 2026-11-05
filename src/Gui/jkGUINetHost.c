@@ -20,6 +20,7 @@
 #include "Main/jkRes.h"
 #include "Main/jkEpisode.h"
 #include "Gui/jkGUISingleplayer.h"
+#include "Main/Main.h" // Added: Main_bDedicatedServer
 
 enum jkGuiNetHostButton_t
 {
@@ -184,6 +185,13 @@ static Darray jkGuiNetHost_dArray2;
 
 // Added
 char16_t jkGuiNetHost_portText[32];
+#ifdef PLATFORM_DPLAY
+// With the Imperial Network Protocol or the web lobby, the port box becomes the server's address.
+static char16_t jkGuiNetHost_serverText[256];
+// Per layout: [0] JK, [1] MotS
+static const char16_t* jkGuiNetHost_pPortLabelOrig[2] = {NULL, NULL};
+static rdRect jkGuiNetHost_portLabelRectOrig[2], jkGuiNetHost_portBoxRectOrig[2];
+#endif
 int jkGuiNetHost_portNum = 27020;
 int jkGuiNetHost_bIsDedicated = 0;
 int jkGuiNetHost_bIsCoop = 0;
@@ -260,6 +268,20 @@ void jkGuiNetHost_LoadSettings()
     jkGuiNetHost_maxPlayers = wuRegistry_GetInt("maxPlayers", jkGuiNetHost_maxPlayers);
     jkGuiNetHost_tickRate = wuRegistry_GetInt("tickRate", jkGuiNetHost_tickRate);
 
+#ifdef QOL_IMPROVEMENTS
+    // Added (as tristamus/OpenJKDF2 016318ba): the default limit went from JK.EXE's 4 to every
+    // slot (Main_Startup). The Host screen saves it whenever it closes, so a saved 4 moves to the
+    // new default once; a number someone picked stays. A dedicated server's server.json is
+    // the admin's, so it's left alone.
+    if (!Main_bDedicatedServer && wuRegistry_GetInt("maxPlayersDefault", 4) != JKPLAYER_NUM_INFOS)
+    {
+        if (jkGuiNetHost_maxPlayers == 4)
+            jkGuiNetHost_maxPlayers = JKPLAYER_NUM_INFOS;
+        wuRegistry_SaveInt("maxPlayers", jkGuiNetHost_maxPlayers);
+        wuRegistry_SaveInt("maxPlayersDefault", JKPLAYER_NUM_INFOS);
+    }
+#endif
+
     // MOTS added:
     //if (jkGuiNetHost_maxRank > 8) {
     //    jkGuiNetHost_maxRank = 8;
@@ -277,6 +299,10 @@ void jkGuiNetHost_LoadSettings()
     if (jkGuiNetHost_bIsDedicated) {
         jkGuiNetHost_maxPlayers += 1;
     }
+    // Added: the saved count leaves out a dedicated server's own slot, so the default
+    // (every slot) would be one too many
+    if (jkGuiNetHost_maxPlayers > JKPLAYER_NUM_INFOS)
+        jkGuiNetHost_maxPlayers = JKPLAYER_NUM_INFOS;
 
     if (jkGuiNetHost_bIsDedicated) {
         jkGuiNetHost_sessionFlags |= SESSIONFLAG_ISDEDICATED;
@@ -431,6 +457,52 @@ int jkGuiNetHost_Show(jkMultiEntry3 *pMultiEntry)
     jk_snwprintf(jkGuiNetHost_portText, 0x20u, u"%d", jkGuiNetHost_portNum);
     jkGuiNetHost_pElements[NETHOST_PORT_TEXTBOX].wstr = jkGuiNetHost_portText;
     jkGuiNetHost_pElements[NETHOST_PORT_TEXTBOX].selectedTextEntry = 31;
+#ifdef PLATFORM_DPLAY
+    {
+        jkGuiElement* pLabel = &jkGuiNetHost_pElements[NETHOST_PORT_TEXTBOX - 1];
+        jkGuiElement* pBox = &jkGuiNetHost_pElements[NETHOST_PORT_TEXTBOX];
+        int kind = stdComm_DPlay_ServerKind();
+        int bMots = (jkGuiNetHost_pElements == jkGuiNetHost_aElementsMots);
+        if (!jkGuiNetHost_pPortLabelOrig[bMots])
+        {
+            jkGuiNetHost_pPortLabelOrig[bMots] = pLabel->wstr;
+            jkGuiNetHost_portLabelRectOrig[bMots] = pLabel->rect;
+            jkGuiNetHost_portBoxRectOrig[bMots] = pBox->rect;
+        }
+        if (kind)
+        {
+            // Where the game is advertised: the relay server or the web lobby.
+            const char* pAddr = stdComm_DPlay_GetServer();
+            memset(jkGuiNetHost_serverText, 0, sizeof(jkGuiNetHost_serverText));
+            for (int i = 0; pAddr && i < 255 && pAddr[i]; i++) jkGuiNetHost_serverText[i] = (char16_t)(uint8_t)pAddr[i];
+            pLabel->wstr = (kind == 1) ? u"Relay server:" : u"Web lobby:";
+            if (bMots)
+            {
+                // MotS's game type checkboxes are top right: use the Server Port row
+                pLabel->rect.x = 20; pLabel->rect.y = 320; pLabel->rect.width = 110; pLabel->rect.height = 40;
+                pBox->rect.x = 130; pBox->rect.y = 325; pBox->rect.width = 160; pBox->rect.height = 20;
+            }
+            else
+            {
+                pLabel->rect.x = 480; pLabel->rect.y = 80; pLabel->rect.width = 150; pLabel->rect.height = 20;
+                pBox->rect.x = 480; pBox->rect.y = 100; pBox->rect.width = 150; pBox->rect.height = 20;
+            }
+            pBox->wstr = jkGuiNetHost_serverText;
+            pBox->selectedTextEntry = 255;
+            pLabel->bIsVisible = 1;
+            pBox->bIsVisible = 1;
+        }
+        else
+        {
+            // DirectPlay uses its standard ports (TCP 2300, UDP 2350, searches on UDP 47624).
+            pLabel->wstr = jkGuiNetHost_pPortLabelOrig[bMots];
+            pLabel->rect = jkGuiNetHost_portLabelRectOrig[bMots];
+            pBox->rect = jkGuiNetHost_portBoxRectOrig[bMots];
+            pLabel->bIsVisible = 0;
+            pBox->bIsVisible = 0;
+        }
+    }
+#endif
 #endif
     jk_snwprintf(v26, 0x20u, u"%d", (unsigned int)(__int64)((flex_d_t)(unsigned int)jkGuiNetHost_timeLimit * 0.000016666667));
     jkGuiNetHost_pElements[NETHOST_TIMELIMIT_TEXTBOX].wstr = v26;
@@ -482,8 +554,8 @@ int jkGuiNetHost_Show(jkMultiEntry3 *pMultiEntry)
                 v10 += 1;
                 if (v10 < 2)
                     v10 = 2;
-                if (v10 > 31)
-                    v10 = 31;
+                if (v10 > JKPLAYER_NUM_INFOS) // Altered: was 31, so 30 players at most
+                    v10 = JKPLAYER_NUM_INFOS;
             }
 
             pMultiEntry->maxPlayers = v10;
@@ -529,6 +601,17 @@ int jkGuiNetHost_Show(jkMultiEntry3 *pMultiEntry)
             pMultiEntry->sessionFlags = jkGuiNetHost_sessionFlags;
             jkGuiNetHost_gameFlags = pMultiEntry->multiModeFlags;
 #ifdef QOL_IMPROVEMENTS
+#ifdef PLATFORM_DPLAY
+            if (stdComm_DPlay_ServerKind())
+            {
+                char addr[256];
+                int i = 0;
+                for (; i < 255 && jkGuiNetHost_serverText[i]; i++) addr[i] = (jkGuiNetHost_serverText[i] < 0x80) ? (char)jkGuiNetHost_serverText[i] : '?';
+                addr[i] = 0;
+                stdComm_DPlay_SetServer(addr);   // remembered for next time
+            }
+            else
+#endif
             jkGuiNetHost_portNum = wstr_to_int_clamped(jkGuiNetHost_portText, 1, 65535);
             wuRegistry_SetWString("serverPassword", pMultiEntry->wPassword);
             wuRegistry_SaveStr("serverEpisodeGob", pMultiEntry->episodeGobName);

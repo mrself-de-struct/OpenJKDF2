@@ -1,8 +1,13 @@
 #include "sithCvar.h"
+#include "Main/jkServer.h" // Added: sv_allowVote
 
 #include "General/stdString.h"
 #include "General/stdStrTable.h"
 #include "General/stdJSON.h"
+#include "Platform/stdControl.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/DPlay/stdComm_dplay.h"
+#endif
 #include "Main/jkHud.h"
 #include "World/jkPlayer.h"
 #include "Platform/Common/stdUpdater.h"
@@ -33,6 +38,13 @@ int sithCvar_Startup()
 
     jkPlayer_StartupVars();
     stdUpdater_StartupCvars();
+    stdControl_StartupCvars(); // Added: mouse tuning
+#ifdef PLATFORM_DPLAY
+    stdComm_DPlay_StartupCvars(); // Added: net_askBeforeDownload
+#endif
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    jkServer_StartupCvars(); // Added: sv_allowVote
+#endif
 
     sithCvar_LoadGlobals();
 

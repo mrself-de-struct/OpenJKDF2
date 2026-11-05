@@ -9,6 +9,7 @@
 #include "Main/sithMain.h"
 #include "Engine/rdMaterial.h"
 #include "Platform/std3D.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
 #include "jk.h"
 
 int sithMaterial_Startup()
@@ -198,6 +199,9 @@ LABEL_10:
         }
         if ( !_strcmp(pName, "dflt.mat") )
             return 0;
+        // Added: a stand-in shifts the material indices used on the wire (sithDSS_ProcessSurfaceStatus)
+        if (Main_bVerboseNetworking)
+            stdPlatform_Printf("sithMaterial: %s missing, using dflt.mat (material #%d)\n", pName, v4->numMaterials);
         pName = "dflt.mat";
     }
 }
@@ -220,6 +224,16 @@ rdMaterial* sithMaterial_GetMaterialByIndex(int index)
         result = NULL;
 
     return result;
+}
+
+// Added: a material this PC has already loaded, by its file name (mat_fpath),
+// or NULL. Unlike its index, the name doesn't depend on the order this PC
+// loaded its materials in, which a graphics pack only one player runs changes.
+rdMaterial* sithMaterial_FindByName(const char *pName)
+{
+    if ( !sithMaterial_pHashtable || !pName || !pName[0] )
+        return NULL;
+    return (rdMaterial *)stdHashtbl_Find(sithMaterial_pHashtable, pName);
 }
 
 int sithMaterial_GetMemorySize(rdMaterial *mat)

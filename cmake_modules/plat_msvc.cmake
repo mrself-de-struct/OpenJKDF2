@@ -14,7 +14,7 @@ macro(plat_initialize)
     set(TARGET_USE_CURL FALSE)
     set(TARGET_COMPILE_FREEGLUT TRUE)
     set(TARGET_FIND_OPENAL FALSE)
-    set(TARGET_USE_GAMENETWORKINGSOCKETS FALSE) # TODO why does this keep breaking :(
+    set(TARGET_USE_DPLAY FALSE) # modern Windows SDKs no longer ship dplay.h; use the MinGW builds
     set(SDL2_COMMON_LIBS SDL::SDL)
     
     set(TARGET_WIN32 TRUE)
@@ -77,9 +77,6 @@ macro(plat_link_and_package)
         endif()
     endif()
     target_link_libraries(sith_engine PRIVATE nlohmann_json::nlohmann_json)
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        target_link_libraries(sith_engine PRIVATE GameNetworkingSockets::GameNetworkingSockets)
-    endif()
     if(TARGET_USE_PHYSFS)
         target_link_libraries(sith_engine PRIVATE PhysFS::PhysFS_s)
         target_link_libraries(${BIN_NAME} PRIVATE PhysFS::PhysFS_s)
@@ -103,11 +100,4 @@ macro(plat_link_and_package)
         COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_SOURCE_DIR}/3rdparty/drmingw-0.9.3-win64/bin/symsrv.yes ${PROJECT_BINARY_DIR}
     )
 
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        add_custom_command(
-            TARGET ${BIN_NAME}
-            POST_BUILD 
-            COMMAND ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/GameNetworkingSockets/bin/GameNetworkingSockets.dll ${PROJECT_BINARY_DIR}
-        )
-    endif()
 endmacro()

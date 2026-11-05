@@ -6,9 +6,6 @@ macro(plat_link_and_package)
         target_link_libraries(sith_engine PRIVATE PhysFS::PhysFS_s)
         target_link_libraries(${BIN_NAME} PRIVATE PhysFS::PhysFS_s)
     endif()
-    if(TARGET_USE_GAMENETWORKINGSOCKETS)
-        target_link_libraries(sith_engine PRIVATE GameNetworkingSockets::GameNetworkingSockets)
-    endif()
 
     target_link_libraries(sith_engine PRIVATE nlohmann_json::nlohmann_json)
     target_link_libraries(sith_engine PRIVATE dl) # dlopen, dlsym

@@ -1,10 +1,13 @@
 #include "jkDSS.h"
+#include "Main/jkMain.h" // Added: jkMain_LevelEnding
 
 #include "Cog/sithCog.h"
 #include "Dss/sithMulti.h"
 #include "Gameplay/jkSaber.h"
 #include "World/jkPlayer.h"
 #include "Gameplay/sithPlayer.h"
+#include "Main/Main.h" // Added: Main_bVerboseNetworking
+#include "stdPlatform.h"
 #include "Gameplay/sithEvent.h"
 #include "General/stdString.h"
 #include "General/stdStrTable.h"
@@ -23,6 +26,9 @@
 #include "Dss/sithGamesave.h"
 #include "Main/jkSmack.h"
 #include "jk.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/Hits/stdComm_Hits.h" // Added: Hit what you see
+#endif
 
 const char* jkDSS_aKyTeamModels[5] = {
     "ky.3do",
@@ -361,6 +367,11 @@ int jkDSS_ProcessSetSaberInfoMots(SithMessage *msg)
 
     int personality = NETMSG_POPS16();
 
+    // Added: with -verboseNetworking, note which saber each player gets
+    if (Main_bVerboseNetworking)
+        stdPlatform_Printf("jkDSS: SABERINFO%d for %08x from %x: %s %s %s personality %d\n", msg->netMsg.cogMsgId == DSS_SABERINFO1 ? 1 : 2,
+                           v2->guid, (unsigned)msg->netMsg.idx, model_3do_fname, material_side_fname, material_tip_fname, personality);
+
     if ( msg->netMsg.cogMsgId == DSS_SABERINFO1 )
     {
         if ( (sithNet_MultiModeFlags & MULTIMODEFLAG_20) != 0 )
@@ -507,6 +518,20 @@ void jkDSS_SendJKEnableSaber(SithThing *pPlayerThing)
     NETMSG_PUSHF32(pPlayerInfo->saberCollideInfo.damage);
     NETMSG_PUSHF32(pPlayerInfo->saberCollideInfo.bladeLength);
     NETMSG_PUSHF32(pPlayerInfo->saberCollideInfo.stunDelay);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the swing's number, after what the original sends
+    // (stdComm_WSRelay_NewSwing). Never to JK.EXE.
+    if ( stdComm_bOpenJkdf2Wire )
+    {
+        NETMSG_PUSHU32(stdComm_WSRelay_GetSwing(pPlayerThing));
+
+        // Added: and its time, so other games turn the blade on when they draw the
+        // player there (stdComm_WSRelay_HoldForTimeline).
+        uint32_t t32;
+        if ( stdComm_WSRelay_TimelineTime(pPlayerThing, &t32) )
+            NETMSG_PUSHU32(t32);
+    }
+#endif
 
     NETMSG_END(DSS_JKENABLESABER);
 
@@ -531,6 +556,14 @@ int jkDSS_ProcessJKEnableSaber(SithMessage *msg)
     flex32_t arg3 = NETMSG_POPF32();
 
     jkSaber_Enable(pThing, arg1, arg2, arg3);
+#ifdef PLATFORM_DPLAY
+    // Added: Hit what you see: the swing's number, which a message from an older
+    // game doesn't have (0), and what this game knows of the swing, to check the
+    // claims for what it hits.
+    uint32_t swing = NETMSG_IN_LEFT(msg) >= 4 ? NETMSG_POPU32() : 0;
+    stdComm_WSRelay_SetSwing(pThing, swing);
+    stdComm_WSRelay_NoteSwing(pThing, swing, arg1, arg2);
+#endif
     return 1;
 }
 
@@ -681,6 +714,10 @@ int jkDSS_ProcessSetSaberInfo2(SithMessage *msg)
 
     int idx = NETMSG_POPS32();
     SithThing* thing = sithThing_GetGuidThing(idx);
+    // Added: with -verboseNetworking, note saber setups and ones for things we don't have
+    if (Main_bVerboseNetworking)
+        stdPlatform_Printf("jkDSS: SABERINFO3 for %08x (%s %d) from %x%s\n", idx, isNotPlayer ? "other" : "player", playerInfoIdx,
+                           (unsigned)msg->netMsg.idx, thing ? "" : ": no such thing, ignored");
     if (!thing) {
         return Main_bMotsCompat ? 1 : 0; // MOTS altered
     }
@@ -708,6 +745,9 @@ int jkDSS_ProcessSetSaberInfo2(SithMessage *msg)
 
         jkSaber_InitializeSaberInfo(thing, material_side_fname, material_tip_fname, baseRadius, tipRadius, playerInfo->length, 0, 0, 0);
         thing->playerInfo->polylineThing.polyline->length = NETMSG_POPF32();
+        if (Main_bVerboseNetworking) // Added
+            stdPlatform_Printf("jkDSS:   blade %s %s, length %f (full %f)\n", material_side_fname, material_tip_fname,
+                               thing->playerInfo->polylineThing.polyline->length, playerInfo->length);
     }
     playerInfo->wall_sparks = sithTemplate_GetTemplateByIndex(NETMSG_POPS32());
     playerInfo->blood_sparks = sithTemplate_GetTemplateByIndex(NETMSG_POPS32());
@@ -1096,6 +1136,9 @@ int jkDSS_ProcessJKPrintUniString(SithMessage *msg)
 
 void jkDSS_SendEndLevel()
 {
+#if defined(QOL_IMPROVEMENTS) && defined(PLATFORM_DPLAY)
+    jkMain_LevelEnding(); // Added: a dedicated server's next map, named for the joiners now
+#endif
     NETMSG_START;
 
     NETMSG_PUSHS32(jkEpisode_GetCurrentEpisodeEntry(&jkEpisode_mLoad)->level);
