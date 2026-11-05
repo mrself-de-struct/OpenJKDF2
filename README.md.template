@@ -19,7 +19,7 @@ All four carry the game's own messages, so a match plays the same on any of them
 
 **Dedicated server.** `openjkdf2 -dedicatedServer -headless` hosts without a window or a player. Its settings live in `server.json`. It keeps a log, rotates maps across episodes, runs its own server on UDP 27960 or hosts on a relay, and lists itself on a master server. Admins use rcon (`rcon_password`, then `rcon <command>`) for status, kick, ban, map, password, rank and more; players can vote on maps, kicks and limits. See [tools/jkrelay/README.md](tools/jkrelay/README.md#dedicated-servers-without-a-relay).
 
-**Details** on the protocols, what was checked against real JK.EXE traffic, logging and the test tools: [src/Platform/Networking/DPlay/README.md](src/Platform/Networking/DPlay/README.md). Building is as below ([BUILDING.md](BUILDING.md)). Report problems with these features [on this fork](https://github.com/sithmartyr/OpenJKDF2/issues); everything else belongs upstream.
+**Details** on the protocols, what was checked against real JK.EXE traffic, logging and the test tools: [src/Platform/Networking/DPlay/README.md](src/Platform/Networking/DPlay/README.md). Building is as below ([BUILDING.md](BUILDING.md)). Report problems with these features [on this fork](https://github.com/mrself-de-struct/OpenJKDF2/issues); everything else belongs upstream.
 
 **License.** This fork is licensed under the GNU General Public License, version 2 or (at your option) any later version; see [LICENSE.md](LICENSE.md) and [COPYING](COPYING). The upstream OpenJKDF2 code it builds on is also available under its own 0BSD license from [upstream](https://github.com/shinyquagsire23/OpenJKDF2).
 
