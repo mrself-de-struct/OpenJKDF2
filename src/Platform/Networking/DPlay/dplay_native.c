@@ -2272,17 +2272,18 @@ long dps_EnumConnections(dps_connection_cb cb, void* ctx)
     // DPSPGUID_TCPIP {36E95EE0-8577-11CF-960C-0080C7534E82}
     static const uint8_t tcpip[16] = { 0xE0, 0x5E, 0xE9, 0x36, 0x77, 0x85, 0xCF, 0x11,
                                        0x96, 0x0C, 0x00, 0x80, 0xC7, 0x53, 0x4E, 0x82 };
-    // "DirectPlay TCP/IP (with JK.EXE)": plays with the original game.
-    static const uint16_t name[] = { 'D','i','r','e','c','t','P','l','a','y',' ','T','C','P','/','I','P',' ',
-                                     '(','w','i','t','h',' ','J','K','.','E','X','E',')',0 };
+    // Altered: "Internet TCP/IP Connection For DirectPlay" (was "DirectPlay TCP/IP (with JK.EXE)"): plays with the original game.
+    static const uint16_t name[] = { 'I','n','t','e','r','n','e','t',' ','T','C','P','/','I','P',' ','C','o',
+                                     'n','n','e','c','t','i','o','n',' ','F','o','r',' ','D','i','r','e','c',
+                                     't','P','l','a','y',0 };
     static const uint8_t blob[4] = { 'D', 'P', 'N', '1' };
     // DPSPGUID_IPX {685BC400-9D2C-11CF-A9CD-00AA006886E3}
     static const uint8_t ipx[16] = { 0x00, 0xC4, 0x5B, 0x68, 0x2C, 0x9D, 0xCF, 0x11,
                                      0xA9, 0xCD, 0x00, 0xAA, 0x00, 0x68, 0x86, 0xE3 };
-    // "DirectPlay IPX (with JK.EXE + IPXWrapper)"
-    static const uint16_t ipxName[] = { 'D','i','r','e','c','t','P','l','a','y',' ','I','P','X',' ',
-                                        '(','w','i','t','h',' ','J','K','.','E','X','E',' ','+',' ',
-                                        'I','P','X','W','r','a','p','p','e','r',')',0 };
+    // Altered: "IPX Wrapper Connection for DirectPlay" (was "DirectPlay IPX (with JK.EXE + IPXWrapper)")
+    static const uint16_t ipxName[] = { 'I','P','X',' ','W','r','a','p','p','e','r',' ','C','o','n','n','e',
+                                        'c','t','i','o','n',' ','f','o','r',' ','D','i','r','e','c','t','P',
+                                        'l','a','y',0 };
     static const uint8_t ipxBlob[4] = { 'D', 'P', 'N', 'X' };
     if (!N.started) return DPERR_UNINITIALIZED;
     if (cb(ctx, tcpip, name, blob, sizeof(blob)))

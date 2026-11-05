@@ -7,8 +7,8 @@ the transport that belongs to the picked connection:
 
 | Connection | Transport | Plays with | Needs |
 | --- | --- | --- | --- |
-| DirectPlay TCP/IP (with JK.EXE) | `dplay_native.c` (all platforms; optionally Microsoft's via `dplay_shim.c` on 32-bit Windows) | OpenJKDF2 and the original JK.EXE | reachable ports (TCP 2300, UDP 2350; host UDP 47624), LAN or VPN |
-| DirectPlay IPX (with JK.EXE + IPXWrapper) | `dplay_native.c` (all platforms) | OpenJKDF2 and JK.EXE players using IPXWrapper's IPX connection | the same subnet (LAN, or a VPN such as Radmin), UDP 54792 |
+| Internet TCP/IP Connection For DirectPlay | `dplay_native.c` (all platforms; optionally Microsoft's via `dplay_shim.c` on 32-bit Windows) | OpenJKDF2 and the original JK.EXE | reachable ports (TCP 2300, UDP 2350; host UDP 47624), LAN or VPN |
+| IPX Wrapper Connection for DirectPlay | `dplay_native.c` (all platforms) | OpenJKDF2 and JK.EXE players using IPXWrapper's IPX connection | the same subnet (LAN, or a VPN such as Radmin), UDP 54792 |
 | Imperial Network Protocol | `jkrelay_client.c` | OpenJKDF2 only | a relay server (`tools/jkrelay`) |
 | OpenJKDF2 Web Lobby (browser players) | `jkweb_client.c` | the jkdf2mp browser build and other desktop OpenJKDF2 players on the same lobby | a jkdf2mp lobby URL (Cloudflare `lobby.js` or `relay.py`) |
 
@@ -253,7 +253,7 @@ searches always see the current description).
 
 ### IPX (IPXWrapper)
 
-The "DirectPlay IPX" connection plays with JK.EXE players who use
+The "IPX Wrapper Connection for DirectPlay" connection plays with JK.EXE players who use
 [IPXWrapper](https://github.com/solemnwarning/ipxwrapper) and pick DirectPlay's
 IPX connection. Newer Windows dropped IPX and DirectPlay's IPX provider;
 IPXWrapper brings both back by carrying IPX over UDP and installing its own

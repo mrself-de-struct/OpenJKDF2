@@ -8,8 +8,8 @@ This fork of OpenJKDF2 replaces its multiplayer code with a new system. It plays
 
 | Connection | Plays with | Needs |
 |---|---|---|
-| **DirectPlay TCP/IP** | JK.EXE and OpenJKDF2 | TCP 2300 and UDP 2350 reachable, and UDP 47624 to the host (a LAN or a VPN such as Radmin) |
-| **DirectPlay IPX** | JK.EXE with [IPXWrapper](https://github.com/solemnwarning/ipxwrapper), and OpenJKDF2 | the same subnet (a LAN or a VPN), UDP 54792 |
+| **Internet TCP/IP Connection For DirectPlay** | JK.EXE and OpenJKDF2 | TCP 2300 and UDP 2350 reachable, and UDP 47624 to the host (a LAN or a VPN such as Radmin) |
+| **IPX Wrapper Connection for DirectPlay** | JK.EXE with [IPXWrapper](https://github.com/solemnwarning/ipxwrapper), and OpenJKDF2 | the same subnet (a LAN or a VPN), UDP 54792 |
 | **Imperial Network Protocol** | OpenJKDF2 on desktop and in the browser | nothing: everyone connects out to a relay server, and nobody forwards ports |
 | **OpenJKDF2 Web Lobby** | the [jkdf2mp](https://github.com/tristamus/OpenJKDF2) browser build | nothing: a lobby URL |
 
