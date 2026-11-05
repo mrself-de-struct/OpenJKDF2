@@ -87,7 +87,7 @@
 // (an older page, or a desktop host, which doesn't serve maps yet) only holds
 // the join up this long before ours is used, as the browser does after 20 s.
 #define INFO_TIMEOUT_LOCAL_MS 6000
-#define CHUNK_RESEND_MS     5000
+#define CHUNK_RESEND_MS     3000   // Altered: was 5000 (a lost part held a download up that long)
 #define BLOCK_BYTES         (1024 * 1024)
 #define PART_DIRECT         (64 * 1024)
 #define PART_RELAY          (48 * 1024)
@@ -1413,6 +1413,19 @@ typedef struct { uint32_t to; int kind, direct; uint32_t next, end, size; int bl
 static jkx_hostReq XQ[JKX_HOST_QUEUE];
 static int XQn;
 
+// Added (2026-11-05): the highest block each joiner asked for since it last asked for
+// the file's info (a new download). One asked for again that isn't queued any more
+// was sent, so some of it was lost: the transport slows down for that joiner
+// (jkweb_XferNoteLoss).
+#define JKX_HOST_PEERS 16
+static struct { uint32_t to; int kind, any; uint32_t highest; } XP[JKX_HOST_PEERS];
+
+static void jkx_HostDrop(int i)
+{
+    memmove(XQ + i, XQ + i + 1, sizeof(XQ[0]) * (size_t)(XQn - i - 1));
+    XQn--;
+}
+
 static void jkx_HostFrame(uint8_t* f, int type, uint32_t to, int kind);
 
 typedef struct { uint32_t off, size; uint8_t sha[32]; } jkx_ref;
@@ -1777,10 +1790,12 @@ static const uint8_t* jkx_HostBlock(jkx_offer* o, uint32_t b, int accept, uint32
 void jkx_HostPump(void)
 {
     static uint8_t f[HEADER + BLOCK_HEADER + PART_DIRECT];
-    int frames = 0;
-    while (XQn && frames < JKX_HOST_FRAMES_PER_PUMP)
+    int frames = 0, i = 0;
+    // Altered: a request whose joiner has to wait is passed over for the next one (was
+    // a stop for everyone), so one slow joiner doesn't hold up the others.
+    while (i < XQn && frames < JKX_HOST_FRAMES_PER_PUMP)
     {
-        jkx_hostReq* q = &XQ[0];
+        jkx_hostReq* q = &XQ[i];
         jkx_offer* o = &XO[q->kind];
         uint32_t len;
         if (q->block)
@@ -1791,10 +1806,10 @@ void jkx_HostPump(void)
             const uint8_t* z;
             if (!o->stream || q->b >= o->numBlocks || (q->end && q->next >= q->end))
             {
-                memmove(XQ, XQ + 1, sizeof(XQ[0]) * (size_t)--XQn);
+                jkx_HostDrop(i);
                 continue;
             }
-            if (!jkweb_XferCanSend(q->to, q->direct)) break;
+            if (!jkweb_XferCanSend(q->to, q->direct)) { i++; continue; }
             z = jkx_HostBlock(o, q->b, q->accept, &zlen, &codec);
             q->end = zlen;
             len = zlen - q->next < q->size ? zlen - q->next : q->size;
@@ -1808,7 +1823,7 @@ void jkx_HostPump(void)
             memcpy(f + HEADER + BLOCK_HEADER, z + q->next, len);
             if (!jkweb_XferSend(q->to, f, HEADER + BLOCK_HEADER + len, q->direct))
             {
-                memmove(XQ, XQ + 1, sizeof(XQ[0]) * (size_t)--XQn);
+                jkx_HostDrop(i);
                 continue;
             }
             q->next += len;
@@ -1817,10 +1832,10 @@ void jkx_HostPump(void)
         }
         if (!o->stream || q->next >= q->end || (uint64_t)q->next * q->size >= o->streamLen)
         {
-            memmove(XQ, XQ + 1, sizeof(XQ[0]) * (size_t)--XQn);
+            jkx_HostDrop(i);
             continue;
         }
-        if (!jkweb_XferCanSend(q->to, q->direct)) break;
+        if (!jkweb_XferCanSend(q->to, q->direct)) { i++; continue; }
         len = o->streamLen - q->next * q->size;
         if (len > q->size) len = q->size;
         jkx_HostFrame(f, T_CHUNK, q->to, q->kind);
@@ -1830,7 +1845,7 @@ void jkx_HostPump(void)
         if (!jkweb_XferSend(q->to, f, HEADER + 12 + len, q->direct))
         {
             // The joiner asks again for what doesn't come.
-            memmove(XQ, XQ + 1, sizeof(XQ[0]) * (size_t)--XQn);
+            jkx_HostDrop(i);
             continue;
         }
         q->next++;
@@ -1869,6 +1884,8 @@ static void jkx_OnHostFrame(uint32_t from, const uint8_t* p, size_t n, int via)
         static uint8_t f[HEADER + sizeof(o->json)];
         size_t l;
         if (!o->active) return;
+        for (int j = 0; j < JKX_HOST_PEERS; j++)   // Added: a new download from here
+            if (XP[j].to == from) XP[j].any = 0;
         l = strlen(o->json);
         jkx_HostFrame(f, T_INFO, from, p[14]);
         memcpy(f + HEADER, o->json, l);
@@ -1910,6 +1927,30 @@ static void jkx_OnHostFrame(uint32_t from, const uint8_t* p, size_t n, int via)
         if (!direct) part = PART_RELAY;   // the lobby closes sockets that send it more than 64 KiB
         for (uint32_t b = first; b < first + count && b < o->numBlocks; b++)
         {
+            // Added: a block still queued for this joiner is kept where it is (the queue
+            // is slow, nothing was lost); one asked for again after it was sent was
+            // partly lost on the way.
+            int queued = 0, peer = -1, oldest = 0;
+            for (int j = 0; j < XQn && !queued; j++)
+                if (XQ[j].block && XQ[j].to == from && XQ[j].kind == k && XQ[j].b == b) queued = 1;
+            if (queued) continue;
+            for (int j = 0; j < JKX_HOST_PEERS && peer < 0; j++)
+                if (XP[j].to == from) peer = j;
+            if (peer < 0)
+            {
+                for (int j = 1; j < JKX_HOST_PEERS; j++) if (!XP[j].to) { oldest = j; break; }
+                peer = oldest;
+                memset(&XP[peer], 0, sizeof(XP[peer]));
+                XP[peer].to = from;
+            }
+            if (XP[peer].any && XP[peer].kind == k && b <= XP[peer].highest)
+                jkweb_XferNoteLoss(from);
+            else if (!XP[peer].any || XP[peer].kind != k || b > XP[peer].highest)
+            {
+                XP[peer].any = 1;
+                XP[peer].kind = k;
+                XP[peer].highest = b;
+            }
             if (XQn == JKX_HOST_QUEUE)
                 memmove(XQ, XQ + 1, sizeof(XQ[0]) * (size_t)--XQn);
             memset(&XQ[XQn], 0, sizeof(XQ[XQn]));
@@ -1919,6 +1960,8 @@ static void jkx_OnHostFrame(uint32_t from, const uint8_t* p, size_t n, int via)
             XQ[XQn].block = 1;
             XQ[XQn].b = b;
             XQ[XQn].size = part;
+            if (jkweb_XferPartMax() && jkweb_XferPartMax() % BLOCK_UNIT == 0 && jkweb_XferPartMax() < part)
+                XQ[XQn].size = jkweb_XferPartMax();   // Added: smaller parts, as the transport sends best
             XQ[XQn].accept = accept;
             XQn++;
         }

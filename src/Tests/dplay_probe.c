@@ -22,6 +22,10 @@
 //   PROBE_MASTERS=host[,host...] ...   with the relay: list the master servers' games too (as net_masterServers)
 //   PROBE_WEB=ws(s)://host/relay ...   use the jkdf2mp web lobby (link with -lcurl -DPLATFORM_CURL -DLINUX)
 //   PROBE_IPX=1 ...                    use DirectPlay IPX (IPXWrapper's IPX over UDP 54792)
+//   PROBE_DOWNLOAD=<episode> join ...  with the relay: download the host's map <episode> (without
+//                                      .gob) into ./episode as the game would, print the time and
+//                                      speed, then leave. Build with -DPROBE_XFER -DJKX_TESTS and
+//                                      jkweb_xfer.c (+ -lz); retail GOBs it refers to come from ./resource
 //
 // The probe joins at the DirectPlay level only. It never sends JK's own join
 // request, so it never spawns in the game; the host will just see a DirectPlay
@@ -35,6 +39,43 @@
 #include <time.h>
 #include <unistd.h>
 #include "dplay_shim.h"
+
+#ifdef PROBE_XFER
+// The joiner's side of map downloads (jkweb_xfer.c) over the relay, as stdComm_dplay.c
+// gives it to the game: frames to the host's machine, and the host's frames back.
+#include "jkweb_xfer.h"
+uint64_t jkx_TestNowMs(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+}
+int jkweb_XferDirectUp(void) { return 1; }
+int jkweb_XferDirectPossible(void) { return 1; }
+int jkweb_XferHostState(void) { return dps_RelayHostSystemId() ? 1 : 0; }
+int jkweb_XferCanSend(uint32_t to, int allowDirect) { (void)to; (void)allowDirect; return 1; }
+void jkweb_XferNoteLoss(uint32_t to) { (void)to; }
+uint32_t jkweb_XferPartMax(void) { return 0; }
+int jkweb_XferSend(uint32_t to, const uint8_t* frame, size_t n, int allowDirect)
+{
+    (void)allowDirect;
+    // PROBE_TRACE=1: each block asked for (type 5: block number, count)
+    if (getenv("PROBE_TRACE") && n >= 16 + 16 && frame[12] == 5)
+        printf("  %6llu ms  ask block %u (x%u)\n", (unsigned long long)jkx_TestNowMs() % 1000000,
+               frame[24] | frame[25] << 8 | frame[26] << 16, frame[28] | frame[29] << 8);
+    return to == 1 && dps_RelaySendBig(dps_RelayHostSystemId(), frame, n) ? JKX_VIA_DIRECT : 0;
+}
+void jkweb_XferPump(void) { dps_Idle(); }
+static void probe_BigFrame(uint32_t from, const uint8_t* p, size_t n)
+{
+    // PROBE_TRACE=1: each block part that arrives whole (type 6: block, its size, offset, length)
+    if (getenv("PROBE_TRACE") && n >= 16 + 24 && p[12] == 6)
+        printf("  %6llu ms  got block %u part at %u len %u of %u\n", (unsigned long long)jkx_TestNowMs() % 1000000,
+               p[24] | p[25] << 8 | p[26] << 16, (unsigned)(p[32] | p[33] << 8 | p[34] << 16), (unsigned)(n - 16 - 24),
+               (unsigned)(p[28] | p[29] << 8 | p[30] << 16));
+    if (n >= 16 && !memcmp(p + 8, "JKMT", 4) && from == dps_RelayHostSystemId()) jkx_OnFrame(1, p, n, JKX_VIA_DIRECT);
+}
+#endif
 
 static const uint8_t kJk[16] = { 0xC0,0x13,0x06,0xBF,0x79,0xDE,0xD0,0x11,0x99,0xC9,0x00,0xA0,0x24,0x76,0xAD,0x4B };
 
@@ -215,6 +256,35 @@ have_session:
     if (hr) { fprintf(stderr, "create player failed: 0x%08lx\n", (unsigned long)hr); dps_Close(); dps_Shutdown(); return 1; }
     printf("created player %08x '%s'\n", myId, nm);
     dps_EnumPlayers(onPlayer, NULL);
+
+#ifdef PROBE_XFER
+    if (getenv("PROBE_DOWNLOAD"))
+    {
+        uint64_t t0 = jkx_TestNowMs(), lastShow = 0;
+        int st;
+        dps_RelaySetBigHandler(probe_BigFrame);
+        jkx_SetAskFirst(0);
+        jkx_StartMap(getenv("PROBE_DOWNLOAD"), "gob");
+        while ((st = jkx_Tick()) == JKX_BUSY && !g_stop)
+        {
+            uint32_t from = 0, size = 0;
+            const void* data = NULL;
+            dps_sysmsg sys;
+            while (dps_Receive(&from, &data, &size, &sys) != DPS_RECV_NONE) {}
+            if (jkx_TestNowMs() - lastShow >= 2000) { lastShow = jkx_TestNowMs(); printf("  %s\n", jkx_Status()); fflush(stdout); }
+            // PROBE_SLEEP_MS: between reads, as the game's frames (16 at 60 fps); default 2
+            usleep(getenv("PROBE_SLEEP_MS") ? (useconds_t)atoi(getenv("PROBE_SLEEP_MS")) * 1000 : 2000);
+        }
+        {
+            double secs = (double)(jkx_TestNowMs() - t0) / 1000.0;
+            printf("download %s after %.1f s: %s %s\n", st == JKX_READY ? "done" : "FAILED", secs, jkx_Reason() ? jkx_Reason() : "",
+                   jkx_ResultPath() ? jkx_ResultPath() : "");
+        }
+        dps_Close();
+        dps_Shutdown();
+        return st == JKX_READY ? 0 : 1;
+    }
+#endif
 
     signal(SIGINT, onSig);
     signal(SIGTERM, onSig);

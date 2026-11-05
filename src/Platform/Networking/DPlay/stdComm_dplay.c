@@ -711,22 +711,59 @@ static int DPlay_RunXfer(int kind)
 }
 #endif
 
+// Added: sv_downloadRate, KB/s a host sends maps and mods at, all joiners together (below)
+int stdComm_DPlay_downloadRateKB = DPLAY_XFER_RATE_DEFAULT_KB;
+
 #ifdef PLATFORM_CURL
 // ---------------------------------------------------------------------------
 // Added: map and mod downloads on the Imperial Network Protocol (2026-10-29): the
 // web lobby's transfers (jkweb_xfer.c, as maps.js/mods.js) between machines in a
 // relay game, as big frames (dps_RelaySendBig). jkweb_xfer.c knows players as the
 // lobby numbers them, the host 1 and joiners 2..64, so a host gives each joiner's
-// machine a number. A host sends at most DPLAY_XFER_RATE bytes a second: UDP has no
-// back-pressure, and a chunk with a lost piece is only asked for again after 5 s.
+// machine a number. UDP has no back-pressure, and a chunk with a lost piece is only
+// asked for again after 5 s, so a host paces what it sends.
+// Altered (2026-11-05): was a fixed 1 MB/s for all joiners together. Now sv_downloadRate
+// (KB/s, all joiners together; stdComm_DPlay_downloadRateKB) is shared fairly between
+// the joiners downloading, and each joiner has its own rate: it starts at
+// DPLAY_XFER_START_KB, rises while nothing is lost and drops when a block it was
+// sent is asked for again (jkweb_XferNoteLoss). Host side only: joiners
+// see the same frames, just sooner.
 // ---------------------------------------------------------------------------
-#define DPLAY_XFER_RATE  (1024 * 1024)
-#define DPLAY_XFER_BURST (64 * 1024)
+// Altered (2026-11-05): parts of DPLAY_XFER_PART and at most DPLAY_XFER_BURST at once.
+// Joiners ask for 64 KiB parts, and a host sent them back to back: 100-200 KB within a
+// millisecond, of which some was regularly lost on the way (on jkjunkie.com: the last
+// part of a block, the first two of the next), and each loss cost the joiner a 5 s wait
+// (the "frozen" downloads). Joiners take any multiple of 16 KiB (jkweb_xfer.c, maps.js).
+#define DPLAY_XFER_PART        (16 * 1024)
+#define DPLAY_XFER_BURST       (32 * 1024)
+#define DPLAY_XFER_RAISE_MS    500    // a joiner without losses gets faster this often...
+#define DPLAY_XFER_RAISE_PARTS 16     // ...by this part of sv_downloadRate
+#define DPLAY_XFER_LOSS_GAP_MS 5000   // one slowdown per joiner's wait before asking again
+#define DPLAY_XFER_ACTIVE_MS   1500   // a joiner sent to this recently shares the rate
+
+typedef struct
+{
+    double   tokens;      // bytes it may send now (negative: sent ahead)
+    double   rate;        // its own rate, bytes a second
+    uint32_t lastMs;      // tokens last refilled
+    uint32_t sentMs;      // last sent to, 0 never
+    uint32_t raisedMs;    // rate last raised
+    uint32_t lossMs;      // rate last halved
+} DPlay_xferPeer;
 
 static uint32_t DPlay_aXferSys[65];  // [2..64]: the machine a number stands for
+static DPlay_xferPeer DPlay_aXferPeer[65];
 static int DPlay_nextXferAlias = 2;
 static double DPlay_xferTokens = DPLAY_XFER_BURST;
 static uint32_t DPlay_xferTokensMs = 0;
+
+static double DPlay_XferTotalRate(void)
+{
+    int kb = stdComm_DPlay_downloadRateKB;
+    if (kb < DPLAY_XFER_MIN_KB) kb = DPLAY_XFER_MIN_KB;
+    if (kb > DPLAY_XFER_MAX_KB) kb = DPLAY_XFER_MAX_KB;
+    return kb * 1024.0;
+}
 
 static uint32_t DPlay_XferAliasOf(uint32_t sysId)
 {
@@ -735,6 +772,8 @@ static uint32_t DPlay_XferAliasOf(uint32_t sysId)
     int a = DPlay_nextXferAlias;
     DPlay_nextXferAlias = a >= 64 ? 2 : a + 1;
     DPlay_aXferSys[a] = sysId;
+    memset(&DPlay_aXferPeer[a], 0, sizeof(DPlay_aXferPeer[a]));   // Added: a new machine starts slow
+    DPlay_aXferPeer[a].rate = DPLAY_XFER_START_KB * 1024.0;
     return (uint32_t)a;
 }
 
@@ -750,9 +789,53 @@ static void DPlay_RelayBigFrame(uint32_t from, const uint8_t* p, size_t n)
 static void DPlay_XferRefill(void)
 {
     uint32_t now = stdPlatform_GetTimeMsec();
-    DPlay_xferTokens += (double)(now - DPlay_xferTokensMs) * (DPLAY_XFER_RATE / 1000.0);
+    DPlay_xferTokens += (double)(now - DPlay_xferTokensMs) * (DPlay_XferTotalRate() / 1000.0); // Altered: sv_downloadRate
     if (DPlay_xferTokens > DPLAY_XFER_BURST) DPlay_xferTokens = DPLAY_XFER_BURST;
     DPlay_xferTokensMs = now;
+}
+
+// Added: a joiner's own tokens, at its rate or its share of sv_downloadRate, whichever
+// is less. Its rate rises while it's downloading without losses.
+static DPlay_xferPeer* DPlay_XferPeerRefill(uint32_t to)
+{
+    DPlay_xferPeer* pPeer;
+    uint32_t now = stdPlatform_GetTimeMsec();
+    double total = DPlay_XferTotalRate(), share, rate;
+    int active = 0;
+    if (to < 2 || to > 64 || !dps_RelayIsHost()) return NULL;
+    pPeer = &DPlay_aXferPeer[to];
+    for (int i = 2; i <= 64; i++)
+        if (DPlay_aXferSys[i] && DPlay_aXferPeer[i].sentMs && now - DPlay_aXferPeer[i].sentMs < DPLAY_XFER_ACTIVE_MS)
+            active++;
+    share = total / (active > 1 ? active : 1);
+    if (pPeer->rate < DPLAY_XFER_MIN_KB * 1024.0) pPeer->rate = DPLAY_XFER_START_KB * 1024.0;
+    if (pPeer->sentMs && now - pPeer->sentMs < DPLAY_XFER_ACTIVE_MS && now - pPeer->raisedMs >= DPLAY_XFER_RAISE_MS
+        && now - pPeer->lossMs >= DPLAY_XFER_RAISE_MS)
+    {
+        pPeer->rate += total / DPLAY_XFER_RAISE_PARTS;
+        pPeer->raisedMs = now;
+    }
+    if (pPeer->rate > total) pPeer->rate = total;
+    rate = pPeer->rate < share ? pPeer->rate : share;
+    if (!pPeer->lastMs) pPeer->lastMs = now;
+    pPeer->tokens += (double)(now - pPeer->lastMs) * rate / 1000.0;
+    if (pPeer->tokens > DPLAY_XFER_BURST) pPeer->tokens = DPLAY_XFER_BURST;
+    pPeer->lastMs = now;
+    return pPeer;
+}
+
+// Added: jkweb_xfer.c's host saw a joiner ask again for a block it had sent, so some of
+// it was lost on the way: that joiner's rate drops by a quarter (once per wait).
+void jkweb_XferNoteLoss(uint32_t to)
+{
+    DPlay_xferPeer* pPeer;
+    uint32_t now = stdPlatform_GetTimeMsec();
+    if (!dps_IsRelayActive() || !(pPeer = DPlay_XferPeerRefill(to))) return;   // the lobby paces itself
+    if (pPeer->lossMs && now - pPeer->lossMs < DPLAY_XFER_LOSS_GAP_MS) return;
+    pPeer->rate *= 0.75;   // losses on the internet aren't all from going too fast
+    if (pPeer->rate < DPLAY_XFER_MIN_KB * 1024.0) pPeer->rate = DPLAY_XFER_MIN_KB * 1024.0;
+    pPeer->lossMs = now ? now : 1;
+    stdPlatform_Printf("OpenJKDF2: download to player %u lost data, now %d KB/s\n", to, (int)(pPeer->rate / 1024.0));
 }
 
 // jkweb_xfer.c's transport: the web lobby's, or the relay's.
@@ -764,14 +847,29 @@ int jkweb_XferSend(uint32_t to, const uint8_t* frame, size_t n, int allowDirect)
     if (!dst) return 0;
     DPlay_XferRefill();
     DPlay_xferTokens -= (double)n;
+    {
+        // Added: what this joiner was sent, against its own rate
+        DPlay_xferPeer* pPeer = DPlay_XferPeerRefill(to);
+        if (pPeer)
+        {
+            uint32_t now = stdPlatform_GetTimeMsec();
+            pPeer->tokens -= (double)n;
+            pPeer->sentMs = now ? now : 1;
+        }
+    }
     return dps_RelaySendBig(dst, frame, n) ? JKX_VIA_DIRECT : 0;
 }
 
+// Added: the largest part of a block a host sends at once on the relay (0: as asked).
+uint32_t jkweb_XferPartMax(void) { return dps_IsRelayActive() ? DPLAY_XFER_PART : 0; }
+
 int jkweb_XferCanSend(uint32_t to, int allowDirect)
 {
+    DPlay_xferPeer* pPeer;
     if (!dps_IsRelayActive()) return jkweb_LobbyXferCanSend(to, allowDirect);
     DPlay_XferRefill();
-    return DPlay_xferTokens > 0;
+    pPeer = DPlay_XferPeerRefill(to);   // Added: and the joiner's own rate
+    return DPlay_xferTokens > 0 && (!pPeer || pPeer->tokens > 0);
 }
 
 // The relay's frames are as small as the lobby's direct links ask for (16 KiB chunks).

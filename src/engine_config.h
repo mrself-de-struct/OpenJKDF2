@@ -147,6 +147,14 @@
 // Added: geosets (levels of detail) in a .3do, rdModel3.aGeos
 #define RDMODEL3_MAX_GEOSETS (4)
 
+// Added: maps and mods a host sends joiners on the Imperial Network Protocol
+// (stdComm_dplay.c), in KB/s: sv_downloadRate's default and limits (all joiners
+// together), and the rate each joiner starts at before it's raised.
+#define DPLAY_XFER_RATE_DEFAULT_KB (2048)
+#define DPLAY_XFER_START_KB        (1024)
+#define DPLAY_XFER_MIN_KB          (512)
+#define DPLAY_XFER_MAX_KB          (102400)
+
 #if defined(QOL_IMPROVEMENTS) && !defined(TARGET_RETRO_HOMEBREW)
 #define SITH_MAX_SYNC_THINGS (128)
 #else

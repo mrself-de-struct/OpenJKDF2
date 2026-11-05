@@ -16,6 +16,7 @@ void stdComm_DPlay_Startup();
 // Nonzero while the selected connection talks to OpenJKDF2 builds that use
 // OpenJKDF2's own message layouts (the jkdf2mp web lobby) instead of JK.EXE's.
 extern int stdComm_bOpenJkdf2Wire;
+extern int stdComm_DPlay_downloadRateKB; // Added: sv_downloadRate (KB/s), see stdComm_dplay.c
 
 // The server the selected connection uses: 0 none (DirectPlay), 1 OpenJKDF2
 // Online relay, 2 web lobby. Get/Set read and save its address

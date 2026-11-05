@@ -31,6 +31,9 @@ int jkweb_XferHostState(void) { return 1; }
 // Loopback host: a link that takes only so many frames per pump.
 static int canSendBudget = 1000000;
 int jkweb_XferCanSend(uint32_t to, int allowDirect) { (void)to; (void)allowDirect; return canSendBudget-- > 0; }
+static int noteLosses = 0;
+void jkweb_XferNoteLoss(uint32_t to) { (void)to; noteLosses++; }
+uint32_t jkweb_XferPartMax(void) { return 0; }
 
 typedef struct frame { struct frame* next; size_t n; uint8_t d[]; } frame;
 static frame *qHead, *qTail;

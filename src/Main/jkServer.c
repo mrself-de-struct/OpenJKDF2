@@ -757,6 +757,8 @@ void jkServer_StartupCvars(void)
     sithCvar_RegisterBool("sv_floodProtect", 1, &jkServer_bFloodProtect, CVARFLAG_GLOBAL);
     sithCvar_RegisterInt("sv_rconMaxTries", 5, &jkServer_rconMaxTries, CVARFLAG_GLOBAL);
     sithCvar_RegisterInt("sv_rconBlockMinutes", 5, &jkServer_rconBlockMinutes, CVARFLAG_GLOBAL);
+    // Added: how fast a host sends maps and mods to joiners (KB/s, all of them together)
+    sithCvar_RegisterInt("sv_downloadRate", DPLAY_XFER_RATE_DEFAULT_KB, &stdComm_DPlay_downloadRateKB, CVARFLAG_GLOBAL);
 }
 
 // The sv_allowVote bit for a kind of vote by name, 0 if it isn't one.

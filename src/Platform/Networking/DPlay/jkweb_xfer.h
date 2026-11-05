@@ -69,6 +69,8 @@ void jkx_OnFrame(uint32_t from, const uint8_t* p, size_t n, int via);
 // returns JKX_VIA_* or 0 if it couldn't be sent.
 int  jkweb_XferSend(uint32_t to, const uint8_t* frame, size_t n, int allowDirect);
 int  jkweb_XferCanSend(uint32_t to, int allowDirect); // a frame to `to` would go out now without waiting
+void jkweb_XferNoteLoss(uint32_t to); // Added: `to` asked again for a block it was sent (some was lost)
+uint32_t jkweb_XferPartMax(void);     // Added: largest block part to send at once, a multiple of 16 KiB (0: as asked)
 int  jkweb_XferDirectUp(void);       // the "jk-map" channel to the host is open
 int  jkweb_XferDirectPossible(void); // a direct link could still come up
 int  jkweb_XferHostState(void);      // 1 ok, 0 host left, -1 lobby connection lost

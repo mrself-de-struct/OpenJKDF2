@@ -224,6 +224,7 @@ static void jkr_WsClose(int sk)
 #else
 #define JKR_LIST_FLAGS          (JKR_LF_SERVERS | JKR_LF_TAILS)
 #endif
+#define JKR_RCVBUF_BYTES (4 * 1024 * 1024)   // Added: the game socket's receive buffer (map downloads)
 
 #define JKR_OK_HR               0
 #define JKR_ERR_GENERIC         ((long)0x80004005)
@@ -1379,6 +1380,16 @@ long dps_Startup(const uint8_t appGuid[16])
 #else
     { int fl = fcntl(R.sock, F_GETFL, 0); fcntl(R.sock, F_SETFL, fl | O_NONBLOCK); }
 #endif
+    {
+        // Added (2026-11-05): room for a map download's bursts. A host sends a part of a
+        // block as a run of packets at once, and the game reads its socket once a frame;
+        // Windows' small default buffer dropped some of every run, so the block was asked
+        // for again and lost again: downloads froze on Windows.
+        // OPENJKDF2_RCVBUF=<bytes> sets another size (tests: a small one acts as Windows').
+        const char* env = getenv("OPENJKDF2_RCVBUF");
+        int want = env && atoi(env) > 0 ? atoi(env) : JKR_RCVBUF_BYTES;
+        setsockopt(R.sock, SOL_SOCKET, SO_RCVBUF, (const char*)&want, sizeof(want));
+    }
     R.started = 1;
     return JKR_OK_HR;
 }
