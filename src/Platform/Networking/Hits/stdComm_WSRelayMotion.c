@@ -1,3 +1,5 @@
+// From tristamus/OpenJKDF2 (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay/stdComm_WSRelayMotion.c), by tristamus.
+//
 // Hit what you see, smooth and time-stamped motion: in a match played by Hit
 // what you see, between games that both have it (hello version 2,
 // stdComm_WSRelayHits.c), each player's own position updates carry the time

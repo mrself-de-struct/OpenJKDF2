@@ -306,7 +306,7 @@ void stdControl_IgnoreHeldKeys()
 }
 
 #ifdef ARCH_WASM
-// Added: for the page's key check (index.html?keycheck). The game key a key
+// Added (from tristamus/OpenJKDF2 0a6dc227): for the page's key check (index.html?keycheck). The game key a key
 // (as an SDL scancode) turns into, 0 if the game ignores it, plus 0x100 while
 // SDL has it held.
 EMSCRIPTEN_KEEPALIVE int stdControl_WebKeyCheck(int scancode)

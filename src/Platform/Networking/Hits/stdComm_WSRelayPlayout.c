@@ -1,3 +1,5 @@
+// From tristamus/OpenJKDF2 (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay/stdComm_WSRelayPlayout.c), by tristamus.
+
 #include "stdComm_WSRelayPlayout.h"
 
 #include <math.h>

@@ -1,3 +1,5 @@
+// From tristamus/OpenJKDF2 (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay/stdComm_WSRelayHits.c), by tristamus.
+//
 // Hit what you see: hit rules a host can pick on its host screen
 // (jkGuiNetHost) instead of Classic, the default. The game that made an
 // attack decides what it hit, by what its player saw, and the target's game
@@ -1456,7 +1458,7 @@ static void hits_TakeHello(int fromNetId, int slot, WSRelayHitsIn* in)
         return;
     rules = (rules == STDCOMM_WSRELAY_HITS_HWYS) ? STDCOMM_WSRELAY_HITS_HWYS : STDCOMM_WSRELAY_HITS_CLASSIC;
 
-    // The host's rules are the match's. Fixed: also a dedicated host's, whose
+    // The host's rules are the match's. Altered: also a dedicated host's, whose
     // own slot is never in the game, so it isn't a peer (hits_Peer).
     if (!stdComm_bIsServer && (flags & HITS_HELLO_HOST) && fromNetId == (int)sithNet_serverNetId)
         stdComm_WSRelay_SetHitRules(rules, reachMs);

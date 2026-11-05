@@ -31,7 +31,7 @@ int sithItem_PlayerCollisionHandler(SithThing *pItem, SithThing *pPlayer, SithCo
     return 0;
 }
 
-// Added: a line-of-sight ray that ends exactly on a solid surface counts as
+// Added (from tristamus/OpenJKDF2 a2500754): a line-of-sight ray that ends exactly on a solid surface counts as
 // hitting it, so an item whose centre sits exactly on a floor (the thermal
 // detonators in JK's m2 and m10, and in most MotS deathmatch maps) fails
 // sithCollision_HasLOS from almost everywhere. That blocks pickups and Force

@@ -46,7 +46,7 @@ int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3);
 int jkRes_NewGob(jkResGobDirectory *gobFullpath, char *gobFolder, char *gobFname);
 int jkRes_LoadCD(int a1);
 
-// Added: graphics packs, the GOBs in mods/ (packaging/wasm/index.html,
+// Added (from tristamus/OpenJKDF2 3db0e9c9): graphics packs, the GOBs in mods/ (packaging/wasm/index.html,
 // OPTIONAL_PACKS). jkRes_SetPackFilter picks which copies of a file open.
 #define JKRES_PACKS_ALL (0)
 #define JKRES_PACKS_ONLY (1)

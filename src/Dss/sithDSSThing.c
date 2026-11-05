@@ -189,7 +189,7 @@ void sithDSSThing_UpdateState(SithThing *pThing, int toID, int outstream)
         NETMSG_PUSHS16(pThing->puppet->field_0);
         NETMSG_PUSHS16(pThing->puppet->field_4);
     }
-    // Fixed (from tristamus/OpenJKDF2 7d69ae6e): was PUSHS32, which cut it to a whole number; the
+    // Altered (from tristamus/OpenJKDF2 7d69ae6e): was PUSHS32, which cut it to a whole number; the
     // receiver reads a float. [WIRE] JK.EXE sends the float (0.2 = cdcc4c3e for a player).
     NETMSG_PUSHF32(pThing->light);
     switch ( pThing->type )
@@ -1524,7 +1524,7 @@ int sithDSSThing_ProcessAttachment(SithMessage *pMsg)
             return 0;
         if (v3 & SITH_ATTACH_THINGFACE)
         {
-            // Added: the face is a number in the sender's copy of the model,
+            // Added (from tristamus/OpenJKDF2 a07fc388): the face is a number in the sender's copy of the model,
             // which a graphics pack only one player runs can give more faces
             // (packaging/wasm/index.html, OPTIONAL_PACKS). Past the end of
             // ours, the thing is attached without a face, as when the model
@@ -1694,7 +1694,7 @@ int sithDSSThing_ProcessCreateThing(SithMessage *pMsg)
         int pThing2Id = NETMSG_POPS32();
         if ( pThing2Id < 0 )
         {
-            // Altered: the sector goes out as 32 bits (sithDSSThing_CreateThing above,
+            // Altered (from tristamus/OpenJKDF2 f5897224): the sector goes out as 32 bits (sithDSSThing_CreateThing above,
             // and MoTS's own reader). Reading 16 shifted the position and guid that
             // follow, so other players' copy landed near the origin under a wrong guid.
             SithSector* pSector = sithSector_GetPtrFromIdx(NETMSG_POPS32());

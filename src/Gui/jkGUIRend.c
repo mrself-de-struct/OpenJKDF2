@@ -41,7 +41,7 @@ int32_t jkGuiRend_menuNestDepth = 0;
 // change is actually applied at depth 0, or by the menu loop itself.
 int32_t jkGuiRend_bStateChangePending = 0;
 #ifdef QOL_IMPROVEMENTS
-// Added: the element the Esc key is clicking right now, or NULL. See
+// Added (from tristamus/OpenJKDF2 9ab62a6b): the element the Esc key is clicking right now, or NULL. See
 // jkGuiRend_IsEscapeKeyClick.
 static jkGuiElement *jkGuiRend_pEscapeKeyClicked = NULL;
 #endif

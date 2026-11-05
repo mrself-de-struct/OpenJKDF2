@@ -1,3 +1,5 @@
+// From tristamus/OpenJKDF2 (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay/stdComm_WSRelayPlayout.h), by tristamus.
+
 #ifndef _PLATFORM_NETWORKING_WSRELAY_STDCOMM_WSRELAYPLAYOUT_H
 #define _PLATFORM_NETWORKING_WSRELAY_STDCOMM_WSRELAYPLAYOUT_H
 

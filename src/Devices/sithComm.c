@@ -162,7 +162,7 @@ int sithComm_SendMsgToPlayer(SithMessage *pMessage, int idTo, int outstream, int
             {
                 if ( i != playerThingIdx && (jkPlayer_playerInfos[i].playerNetId == idTo || (idTo == -1 || !idTo) && (jkPlayer_playerInfos[i].flags & 1) != 0) )
                     pMessage->netMsg.field_14 |= 1 << i;
-                // Added: Dedicated server hax. Fixed (from tristamus/OpenJKDF2 4574909d): only for
+                // Added: Dedicated server hax. Altered (from tristamus/OpenJKDF2 4574909d): only for
                 // messages to everyone. A message sent to one other player also got resent to the
                 // host, which then ran it as if meant for it (a Carbonite hit between two joiners
                 // froze the host too).
@@ -375,7 +375,7 @@ LABEL_25:
     return v13;
 }
 
-// Added: forget the reliable messages seen from a player who left. Every
+// Added (from tristamus/OpenJKDF2 9e24db78): forget the reliable messages seen from a player who left. Every
 // game numbers its messages from 1, and the next player given the same net id
 // (the lobby hands out the lowest free one) had their first messages taken
 // for repeats of the last player's and dropped, so in a quiet game a quick

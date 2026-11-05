@@ -597,7 +597,7 @@ int jkGuiMouse_CancelOkClicked(jkGuiElement *pClickedElement, jkGuiMenu *pMenu, 
     if ( !jkGuiMouse_dword_5566B0 )
     {
 #ifdef QOL_IMPROVEMENTS
-        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Added (from tristamus/OpenJKDF2 9ab62a6b): Esc leaves keeping the new binds, like Ok. Only clicking
         // Cancel throws them away. (Esc while editing a control still just
         // stops editing, below.)
         if ( jkGuiRend_IsEscapeKeyClick(pClickedElement) )

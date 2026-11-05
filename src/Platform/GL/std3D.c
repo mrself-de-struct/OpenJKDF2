@@ -784,7 +784,7 @@ int std3D_StartScene()
     
     double supersample_level = jkPlayer_ssaaMultiple; // Can also be set lower
 #ifdef ARCH_WASM
-    // Added: the box takes any number, and since display settings are kept between
+    // Added (from tristamus/OpenJKDF2 5bf24b28): the box takes any number, and since display settings are kept between
     // visits, a high one stays. 0 or less made an empty buffer.
     if (supersample_level > WASM_MAX_SSAA_MULTIPLE) supersample_level = WASM_MAX_SSAA_MULTIPLE;
     if (supersample_level < 0.25) supersample_level = 0.25;

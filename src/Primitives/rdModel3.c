@@ -689,7 +689,7 @@ fail:
     return 0;
 }
 
-// Added: whether a node draws anything, in any geoset
+// Added (from tristamus/OpenJKDF2 3db0e9c9, c1dffc85, down to rdModel3_FitSkeleton): whether a node draws anything, in any geoset
 static int rdModel3_NodeHasMesh(const rdModel3* pModel, const rdHierarchyNode* pNode)
 {
     for (uint32_t i = 0; i < pModel->numGeos; i++)

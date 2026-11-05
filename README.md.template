@@ -2,6 +2,29 @@
 
 ![MacOS Screenshot](docs/images/screenshot.png)
 
+## About this fork: new multiplayer
+
+This fork of OpenJKDF2 replaces its multiplayer code with a new system. It plays with the original JK.EXE over DirectPlay, and adds internet play without port forwarding, games with browser players and an unattended dedicated server. Multiplayer > connection offers four choices:
+
+| Connection | Plays with | Needs |
+|---|---|---|
+| **DirectPlay TCP/IP** | JK.EXE and OpenJKDF2 | TCP 2300 and UDP 2350 reachable, and UDP 47624 to the host (a LAN or a VPN such as Radmin) |
+| **DirectPlay IPX** | JK.EXE with [IPXWrapper](https://github.com/solemnwarning/ipxwrapper), and OpenJKDF2 | the same subnet (a LAN or a VPN), UDP 54792 |
+| **Imperial Network Protocol** | OpenJKDF2 on desktop and in the browser | nothing: everyone connects out to a relay server, and nobody forwards ports |
+| **OpenJKDF2 Web Lobby** | the [jkdf2mp](https://github.com/tristamus/OpenJKDF2) browser build | nothing: a lobby URL |
+
+All four carry the game's own messages, so a match plays the same on any of them. With JK.EXE players, the DirectPlay connections speak the original game's protocol (its join handshake is tested byte for byte against messages JK.EXE sent). OpenJKDF2 players on the other two also get map and mod downloads from the host and the host's choice of hit rules (Classic or "Hit what you see").
+
+**Imperial Network Protocol.** Games on it are listed on master servers; the default is `master.jkjunkie.com` (console variable `net_masterServers`). Players can also join a server straight from the console: `connect <host>[:port] [password]`, then `reconnect`, `character <name>` and `gameinfo`. The relay server is a single C file in `tools/jkrelay`, which anyone can run; see [tools/jkrelay/README.md](tools/jkrelay/README.md).
+
+**Dedicated server.** `openjkdf2 -dedicatedServer -headless` hosts without a window or a player. Its settings live in `server.json`. It keeps a log, rotates maps across episodes, runs its own server on UDP 27960 or hosts on a relay, and lists itself on a master server. Admins use rcon (`rcon_password`, then `rcon <command>`) for status, kick, ban, map, password, rank and more; players can vote on maps, kicks and limits. See [tools/jkrelay/README.md](tools/jkrelay/README.md#dedicated-servers-without-a-relay).
+
+**Details** on the protocols, what was checked against real JK.EXE traffic, logging and the test tools: [src/Platform/Networking/DPlay/README.md](src/Platform/Networking/DPlay/README.md). Building is as below ([BUILDING.md](BUILDING.md)). Report problems with these features [on this fork](https://github.com/sithmartyr/OpenJKDF2/issues); everything else belongs upstream.
+
+**License.** This fork is licensed under the GNU General Public License, version 2 or (at your option) any later version; see [LICENSE.md](LICENSE.md) and [COPYING](COPYING). The upstream OpenJKDF2 code it builds on is also available under its own 0BSD license from [upstream](https://github.com/shinyquagsire23/OpenJKDF2).
+
+**Credits.** OpenJKDF2 is by shinyquagsire23 and the OpenJKDF2 contributors. tristamus wrote the jkdf2mp browser build and its lobby, whose protocol, map/mod transfers and "Hit what you see" hit rules this fork follows or carries, and many of the fixes here (marked with his commits in the code). Andrei Kiralv/Darkahn and Coda Lilitari wrote the MotS lighting fixes ported from OpenJKDF2-MotS-Fixes. IPXWrapper's source documented its IPX format.
+
 ## [Latest Releases](https://github.com/shinyquagsire23/OpenJKDF2/releases) | [Report a crash or bug](https://github.com/shinyquagsire23/OpenJKDF2/issues)
 
 OpenJKDF2 is a function-by-function reimplementation of DF2 in C, with 64-bit ports to Windows 7+, macOS 10.15+, and Linux. Files are organized as closely to the original game as possible, based on symbols from the Grim Fandango Remaster Android/Linux/macOS port, as well as scattered assertions from various other games. It also contains the original versions of `byacc` and `flex` used for COG script parsing.

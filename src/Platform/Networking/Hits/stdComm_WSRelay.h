@@ -7,8 +7,8 @@
 extern "C" {
 #endif
 
-// Desktop build: a copy of the browser build's header (tristamus' fork,
-// src/Platform/Networking/WSRelay), for its Hit what you see
+// Desktop build: a copy of the browser build's header, by tristamus
+// (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay), for its Hit what you see
 // (stdComm_WSRelayHits.c, stdComm_WSRelayMotion.c). Only the hit rules' part
 // is implemented here (stdComm_Hits.c): the browser's transport, its hit
 // ledger and its test player aren't.

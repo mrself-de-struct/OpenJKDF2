@@ -84,7 +84,7 @@ logs show the player, not the proxy).
 Caddy (WebSocket and X-Forwarded-For are automatic):
 
 ```
-jkjunkie.com {
+relay.example.com {
     reverse_proxy /imperial 127.0.0.1:27901
 }
 ```
@@ -102,12 +102,12 @@ location /imperial {
 }
 ```
 
-Browsers then connect to `wss://jkjunkie.com/imperial`. Port 27901 itself needn't be
+Browsers then connect to `wss://relay.example.com/imperial`. Port 27901 itself needn't be
 open to the internet (only the proxy uses it). Browser players don't get direct links.
 
 Dedicated servers on their own server (listed here as a master server) can't be
 reached by browsers at their own UDP address, so the relay is their gateway: a
-browser opens `wss://jkjunkie.com/imperial?to=<server ip>:<port>` and the relay
+browser opens `wss://relay.example.com/imperial?to=<server ip>:<port>` and the relay
 passes each message on to that server as `JKR_VIA` (with the browser's address) and
 its answers back over the WebSocket. Only servers listed here that answered the
 reachability check can be named; anything else gets a 404. Servers take `JKR_VIA`
@@ -349,7 +349,7 @@ challenge and the game answers with an HMAC-SHA256 of it and the command. After
 ## Master server
 
 A relay server is also a master server: dedicated servers running their own
-server list themselves on it (`-master jkjunkie.com` or `"master"`), and its
+server list themselves on it (`-master relay.example.com` or `"master"`), and its
 game list then shows them next to the games hosted on it. Picking one on the
 join screen joins it at its own address. Anyone can list a server.
 

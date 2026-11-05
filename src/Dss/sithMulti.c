@@ -299,7 +299,7 @@ int sithMulti_SendJoinRequest(int sendto_id)
     NETMSG_PUSHWSTR(jkPlayer_playerShortName, 0x10);
     NETMSG_PUSHWSTR(sithMulti_name, 0x20);
     NETMSG_PUSHU32(sithNet_checksum);
-    // Added: logged once, as the join request is sent again every 2 s while joining.
+    // Added (from tristamus/OpenJKDF2 1224c3c6): logged once, as the join request is sent again every 2 s while joining.
     static uint32_t lastLoggedChecksum = 0;
     if ( sithNet_checksum != lastLoggedChecksum )
     {
@@ -837,7 +837,7 @@ int sithMulti_CheckPlayers(int32_t msecTime, SithEventParams* pParam)
     }
     else if ( sithTime_g_msecGameTime > jkPlayer_playerInfos[0].msecLastCommTime + MULTI_TIMEOUT_MS )
     {
-        // Added: the browser build offers its network log on this line.
+        // Added (from tristamus/OpenJKDF2 1224c3c6): the browser build offers its network log on this line.
         if ( jkPlayer_playerInfos[0].playerNetId == sithNet_serverNetId )
             stdPlatform_Printf("OpenJKDF2: Leaving the game: no packets from the host for %d s.\n", MULTI_TIMEOUT_MS / 1000);
         jkPlayer_playerInfos[0].msecLastCommTime = sithTime_g_msecGameTime;
@@ -1266,7 +1266,7 @@ int sithMulti_ProcessJoinRequest(SithMessage *pMsg)
                 stdLog_Printf("server", "player \"%s\" (id %x) is joining into slot %d", aName, v1, sithMulti_curWelcomePlayerNum);
             }
             v10 = sithNet_checksum;
-            // Added: always logged, though a different one still joins, so a
+            // Added (from tristamus/OpenJKDF2 1224c3c6): always logged, though a different one still joins, so a
             // game that plays differently on two PCs can be told apart from
             // one whose scripts and templates match (a graphics pack only one
             // player runs leaves it the same).

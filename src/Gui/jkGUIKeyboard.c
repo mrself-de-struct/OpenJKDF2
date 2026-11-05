@@ -477,7 +477,7 @@ int jkGuiKeyboard_CancelClicked(jkGuiElement *pElement, jkGuiMenu *pMenu, int32_
     if ( !jkGuiKeyboard_bOnceIdk )
     {
 #ifdef QOL_IMPROVEMENTS
-        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Added (from tristamus/OpenJKDF2 9ab62a6b): Esc leaves keeping the new binds, like Ok. Only clicking
         // Cancel throws them away. (Esc while waiting for a key still just
         // stops waiting, below.)
         if ( jkGuiRend_IsEscapeKeyClick(pElement) )

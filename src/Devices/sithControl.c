@@ -2650,7 +2650,7 @@ int sithControl_GetLastSelected() {
 #endif // QOL_IMPROVEMENTS
 
 #ifdef ARCH_WASM
-// Added: for the page's key check (index.html?keycheck), which shows players
+// Added (from tristamus/OpenJKDF2 0a6dc227): for the page's key check (index.html?keycheck), which shows players
 // what each key they press is bound to, and what it does in a level.
 
 // The next command after funcIdx that dxKeyNum is bound to, -1 when none is.

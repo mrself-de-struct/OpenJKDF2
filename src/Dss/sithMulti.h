@@ -107,7 +107,7 @@ rdVector3 _readingOutV3; rdVector3i _readingOutV3i; rdMatrix34 _readingOutM34;
 #define NETMSG_POPSTR(x,l) { _strncpy((x), (char*)_readingPacket, (l)-1); (x)[(l)-1] = 0; _readingPacket += (l); }
 #define NETMSG_POPWSTR(x,l) { CHECK_ALIGN(uint16_t), _wcsncpy((x), (char16_t*)_readingPacket, (l)-1); (x)[(l)-1] = 0; _readingPacket += (l*sizeof(char16_t)); }
 #define NETMSG_IN_END {}
-// Added: the bytes of x not read yet, for fields added after the original's,
+// Added (from tristamus/OpenJKDF2 a07fc388): the bytes of x not read yet, for fields added after the original's,
 // which a message from an older build doesn't have.
 #define NETMSG_IN_LEFT(x) ((intptr_t)(x)->netMsg.msg_size - (_readingPacket - (intptr_t)&(x)->pktData[0]))
 

@@ -87,7 +87,7 @@ void sithModel_FreeWorldModels(SithWorld *pWorld)
     pWorld->sizeModels = 0;
 }
 
-// Added: a graphics pack's copy of a model (packaging/wasm/index.html,
+// Added (from tristamus/OpenJKDF2 3db0e9c9): a graphics pack's copy of a model (packaging/wasm/index.html,
 // OPTIONAL_PACKS), where the copy that opens first is another one, as a
 // gameplay mod's does: mods load ahead of packs, so that a pack can't change
 // a model's skeleton under a mod's puppets, keyframes and scripts. The pack's

@@ -1230,7 +1230,7 @@ LABEL_232:
                     intBlue += (flex_t)v91->colors[baseLight].b; // FLEXTODO
 
 #ifdef SDL2_RENDER
-                    // Added: this path never set the vertex light level, unlike the others
+                    // Added (from tristamus/OpenJKDF2 c81b1c4a): this path never set the vertex light level, unlike the others
                     rdCache_aHWVertices[rdCache_totalVerts].lightLevel =
                         0.2126 * active_6c->paRedIntensities[vtx_idx]
                         + 0.7152 * active_6c->paGreenIntensities[vtx_idx]

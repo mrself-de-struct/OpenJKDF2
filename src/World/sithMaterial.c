@@ -226,7 +226,7 @@ rdMaterial* sithMaterial_GetMaterialByIndex(int index)
     return result;
 }
 
-// Added: a material this PC has already loaded, by its file name (mat_fpath),
+// Added (from tristamus/OpenJKDF2 a07fc388): a material this PC has already loaded, by its file name (mat_fpath),
 // or NULL. Unlike its index, the name doesn't depend on the order this PC
 // loaded its materials in, which a graphics pack only one player runs changes.
 rdMaterial* sithMaterial_FindByName(const char *pName)

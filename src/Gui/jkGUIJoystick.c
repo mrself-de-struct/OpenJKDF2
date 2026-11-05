@@ -792,7 +792,7 @@ int jkGuiJoystick_OkCancelClick(jkGuiElement *pElement, jkGuiMenu *pMenu, int32_
         jkGuiRend_PlayWav(pMenu->soundClick);
         result = pElement->hoverId;
 #ifdef QOL_IMPROVEMENTS
-        // Added: Esc leaves keeping the new binds, like Ok. Only clicking
+        // Added (from tristamus/OpenJKDF2 9ab62a6b): Esc leaves keeping the new binds, like Ok. Only clicking
         // Cancel throws them away. (Esc while editing a control still just
         // stops editing, below. With no joystick there's no Ok, so Esc stays
         // Cancel.)

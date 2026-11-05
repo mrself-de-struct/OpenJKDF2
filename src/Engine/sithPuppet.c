@@ -403,7 +403,7 @@ void sithPuppet_UpdatePuppet(SithThing *pThing, flex_t secDeltaTime)
     }
 }
 
-// Added
+// Added (from tristamus/OpenJKDF2 6c93ba57)
 void sithPuppet_SetNetVelocity(SithThing *pThing, const rdVector3 *pVel)
 {
     int playerNum;

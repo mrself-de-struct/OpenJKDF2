@@ -875,7 +875,7 @@ int jkQuakeConsole_WmHandler(HWND a1, UINT msg, WPARAM wParam, HWND a4, LRESULT 
                 jkQuakeConsole_bShiftHeld = 1;
             }
 #ifdef ARCH_WASM
-            // Added: in the browser, Ctrl+Shift+` opens the console and ` or Esc
+            // Added (from tristamus/OpenJKDF2 0a6dc227): in the browser, Ctrl+Shift+` opens the console and ` or Esc
             // closes it. Shift is the default Run key and ` the default Scores
             // key, so Shift+` and Shift+Esc opened it mid-match by accident, and
             // the game ignores every bind while it's open.

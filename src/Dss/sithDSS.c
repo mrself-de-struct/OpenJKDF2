@@ -132,7 +132,7 @@ void sithDSS_SurfaceStatus(SithSurface *pSurf, int idTo, int outstream)
     {
         NETMSG_PUSHU32(pSurf->pAdjoin->flags);
     }
-    // Added: the material's name as well, after what the original sends. Its
+    // Added (from tristamus/OpenJKDF2 a07fc388): the material's name as well, after what the original sends. Its
     // index is the order this PC loaded it in, which a graphics pack only one
     // player runs changes (packaging/wasm/index.html, OPTIONAL_PACKS).
     if (sithDSS_SendMaterialNames())
@@ -184,7 +184,7 @@ int sithDSS_ProcessSurfaceStatus(SithMessage *pMsg)
     if ( surface->pAdjoin )
         surface->pAdjoin->flags = NETMSG_POPU32();
 
-    // Added: the material by name when the sender gave it, since its index
+    // Added (from tristamus/OpenJKDF2 a07fc388): the material by name when the sender gave it, since its index
     // can differ between two PCs (sithDSS_SurfaceStatus).
     char matName[0x20] = "";
     if ( NETMSG_IN_LEFT(pMsg) >= 0x20 )
@@ -610,7 +610,7 @@ void sithDSS_AnimStatus(rdSurface *pAnim, int idTo, int outstream)
         NETMSG_PUSHS32(pAnim->material->id);
     if (pAnim->flags & 0x2000000)
         NETMSG_PUSHS32(pAnim->sector->id);
-    // Added: the animated material's name as well, after what the original
+    // Added (from tristamus/OpenJKDF2 a07fc388): the animated material's name as well, after what the original
     // sends, as in sithDSS_SurfaceStatus.
     if ((pAnim->flags & 0x10000) && sithDSS_SendMaterialNames())
         NETMSG_PUSHSTR(pAnim->material ? pAnim->material->mat_fpath : "", 0x20);
@@ -694,7 +694,7 @@ int sithDSS_ProcessAnimStatus(SithMessage *pMsg)
     if (rdsurface->flags & 0x2000000)
         rdsurface->sector = sithSector_GetPtrFromIdx(NETMSG_POPS32());
 
-    // Added: the material by name when the sender gave it (sithDSS_AnimStatus).
+    // Added (from tristamus/OpenJKDF2 a07fc388): the material by name when the sender gave it (sithDSS_AnimStatus).
     if ((rdsurface->flags & 0x10000) && NETMSG_IN_LEFT(pMsg) >= 0x20)
     {
         char matName[0x20];

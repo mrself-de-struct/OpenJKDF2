@@ -1,3 +1,5 @@
+// From tristamus/OpenJKDF2 (github.com/tristamus/OpenJKDF2, src/Platform/Networking/WSRelay/stdComm_WSRelayHitCheck.c), by tristamus.
+
 #include "stdComm_WSRelayHitCheck.h"
 
 #include <math.h>

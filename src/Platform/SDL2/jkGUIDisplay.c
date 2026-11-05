@@ -115,7 +115,7 @@ void jkGuiDisplay_Startup()
 {
     flex32_t ftmp;
 #ifndef TARGET_CAN_JKGM
-    // Added: jkgfxmod isn't built in, so its box would do nothing
+    // Added (from tristamus/OpenJKDF2 b8ec423b): jkgfxmod isn't built in, so its box would do nothing
     jkGuiDisplay_aElementsAdvanced[9].bIsVisible = 0;
     jkGuiDisplay_aElementsAdvanced[10].rect.y = 150;
 #endif
@@ -257,7 +257,7 @@ continue_menu:
             jkPlayer_ssaaMultiple = ftmp;
         }
 #ifdef ARCH_WASM
-        // Added: the most the browser build draws at (std3D_StartScene), so the box shows it next time.
+        // Added (from tristamus/OpenJKDF2 5bf24b28): the most the browser build draws at (std3D_StartScene), so the box shows it next time.
         if (jkPlayer_ssaaMultiple > WASM_MAX_SSAA_MULTIPLE) jkPlayer_ssaaMultiple = WASM_MAX_SSAA_MULTIPLE;
 #endif
 

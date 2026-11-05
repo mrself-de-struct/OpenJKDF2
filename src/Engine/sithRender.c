@@ -1684,7 +1684,7 @@ rdClipFrustum sithRender_absoluteMaxFrustum = {
 // mesh's light scratch at its own base light, so drawing overwrote the base, the
 // scratch leaked and the base was later freed twice. It also used the ARCH data
 // without checking it fits the model. Ported from OpenJKDF2-MotS-Fixes by Andrei
-// Kiralv/Darkahn and Coda Lilitari.
+// Kiralv/Darkahn and Coda Lilitari, through tristamus/OpenJKDF2 555d4b37.
 typedef struct sithRender_MeshLightBinding
 {
     rdMesh* pMesh;
@@ -3166,7 +3166,7 @@ void sithRender_RenderAlphaAdjoins()
     // Added: light translucent world faces with the level's colours, as the opaque
     // pass does. JKM.EXE leaves the mono mode the thing pass set, so translucent
     // faces ignored MotS's coloured lighting. Ported from OpenJKDF2-MotS-Fixes by
-    // Andrei Kiralv/Darkahn and Coda Lilitari.
+    // Andrei Kiralv/Darkahn and Coda Lilitari, through tristamus/OpenJKDF2 320c8f7d.
     int bAlphaRGB = 0;
 #ifdef JKM_LIGHTING
     bAlphaRGB = LIKELY(rdroid_curAcceleration) && (sithRender_renderflags & 0x80);

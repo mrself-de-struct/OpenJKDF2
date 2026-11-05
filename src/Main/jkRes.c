@@ -17,7 +17,7 @@
 
 static int jkRes_bInit;
 
-// Added: with JKRES_PACKS_ONLY, this one file opens only from a graphics
+// Added (from tristamus/OpenJKDF2 3db0e9c9): with JKRES_PACKS_ONLY, this one file opens only from a graphics
 // pack's GOB (one in mods/). Others, like the materials of a model it is,
 // open as usual.
 static int jkRes_packFilter = JKRES_PACKS_ALL;

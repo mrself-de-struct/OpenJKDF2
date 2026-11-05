@@ -177,7 +177,7 @@
 #define TICKRATE_MAX (300)
 #endif
 
-// The most supersampling (Display > SSAA Multiplier) the browser build draws at. Each
+// Added (from tristamus/OpenJKDF2 5bf24b28): the most supersampling (Display > SSAA Multiplier) the browser build draws at. Each
 // step multiplies the pixels on both sides, so 2 is already four times the work.
 #define WASM_MAX_SSAA_MULTIPLE (2.0)
 
