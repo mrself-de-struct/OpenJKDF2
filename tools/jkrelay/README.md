@@ -309,6 +309,23 @@ time and score limits themselves (`ctf_main.cog`), so they end by their own rule
 Stopping a dedicated server (Ctrl+C, `systemctl stop`) closes its game properly,
 so its players hear of it at once; a second Ctrl+C stops it on the spot.
 
+### Map and mod downloads
+
+A player who joins without the server's custom episode GOB (or its mod) gets it from
+the server: the game asks first (global cvar `net_askBeforeDownload`, default 1), puts
+a map in `episode/` and a mod in `netmods/`, and joins (a mod restarts the game into
+it and rejoins by itself). Retail parts of a GOB aren't sent; the player's own copies
+fill them in. Downloads travel inside the game connection, on the same UDP port, so
+nothing else needs to be open. Maps and mods listed in `noshare.txt` in the server's
+folder (one name or wildcard per line) aren't sent.
+
+How fast the server sends is the cvar `sv_downloadRate` (in `openjkdf2_cvars.json`,
+like the other `sv_` cvars; set it with `rcon sv_downloadRate <KB/s>`, saved): KB/s
+for everyone downloading at once, shared fairly between them, default 2048, 512 to
+102400. Each player's own rate starts at 1 MB/s, rises while nothing is lost and drops
+when a part has to be sent again, so a slow connection doesn't hold up the others.
+Lower it if downloads make the game lag for the players already in it.
+
 ### Admin commands and rcon
 
 Typed at the dedicated server's terminal, or sent from anywhere with rcon:
