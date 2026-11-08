@@ -51,6 +51,24 @@
 // Added: FoV fixes
 flex_t sithMain_lastAspect = 1.0;
 
+#ifdef FIXED_TIMESTEP_PHYS
+// Added: the whole milliseconds of the next fixed physics step. A step at 150 Hz is
+// 6.667 ms, and (int)(DELTA_PHYSTICK_FPS * 1000.0) gave 6, so everything counted in
+// sithTime_g_frameTime ms per step (msecLifeLeft: items' respawn, things' lifetimes)
+// ran 10% slow: a 60 s respawn took 66.7 s. The parts of a millisecond left over now
+// carry to the next step, so the steps add up to the time that passed.
+static double sithMain_physStepMsecCarry = 0.0;
+
+static int sithMain_PhysStepMsec(void)
+{
+    int msec;
+    sithMain_physStepMsecCarry += DELTA_PHYSTICK_FPS * 1000.0;
+    msec = (int)sithMain_physStepMsecCarry;
+    sithMain_physStepMsecCarry -= msec;
+    return msec;
+}
+#endif
+
 int sithMain_Startup(HostServices *commonFuncs)
 {
     int is_started; // esi
@@ -282,8 +300,11 @@ int sithUpdate()
             sithTime_g_frameTimeFlex = DELTA_PHYSTICK_FPS;
             sithTime_g_frameTime = (int)(DELTA_PHYSTICK_FPS * 1000.0);
 
-            for (int i = (int)framesToApply; i > 0; i--)
+            // Altered: as many steps as wholeFramesToApply took off the time left over (was
+            // (int)framesToApply, one less whenever the fraction rounded up), each its own ms.
+            for (uint32_t i = 0; i < wholeFramesToApply; i++)
             {
+                sithTime_g_frameTime = sithMain_PhysStepMsec();
                 sithSurface_Tick(sithTime_g_frameTimeFlex);
                 sithThing_Update(sithTime_g_frameTimeFlex, sithTime_g_frameTime);
             }
@@ -353,6 +374,7 @@ int sithUpdate()
 
             for (int i = 0; i < wholeFramesToApply; i++)
             {
+                sithTime_g_frameTime = sithMain_PhysStepMsec(); // Added: this step's own whole ms (6 or 7 at 150 Hz)
                 sithSoundMixer_Update(sithTime_g_frameTimeFlex);
                 sithEvent_Process();
 
