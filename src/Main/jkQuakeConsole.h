@@ -12,6 +12,7 @@ void jkQuakeConsole_ExecuteCommand(const char* pCmd);
 void jkQuakeConsole_SendInput(WPARAM wParam, int bIsChar);
 int jkQuakeConsole_WmHandler(HWND a1, UINT msg, WPARAM wParam, HWND a4, LRESULT *a5);
 void jkQuakeConsole_PrintLine(const char* pLine);
+void jkQuakeConsole_Clear(void); // Added: "clear"
 void jkQuakeConsole_RecordHistory(const char* pLine);
 
 extern int jkQuakeConsole_bOpen;

@@ -956,6 +956,20 @@ int jkQuakeConsole_WmHandler(HWND a1, UINT msg, WPARAM wParam, HWND a4, LRESULT 
     return 0;
 }
 
+// Added (2026-11-08): "clear" (as Quake 3's): forget every line the console shows.
+// Commands typed before (Up/Down) are kept.
+void jkQuakeConsole_Clear(void)
+{
+    for (int i = 0; i < JKQUAKECONSOLE_NUM_LINES; i++)
+    {
+        if (jkQuakeConsole_aLines[i])
+            free(jkQuakeConsole_aLines[i]);
+        jkQuakeConsole_aLines[i] = NULL;
+    }
+    jkQuakeConsole_realLines = 0;
+    jkQuakeConsole_scrollPos = 0;
+}
+
 void jkQuakeConsole_PrintLine(const char* pLine)
 {
 #ifdef TARGET_RETRO_HOMEBREW

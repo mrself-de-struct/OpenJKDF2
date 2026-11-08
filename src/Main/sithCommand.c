@@ -36,6 +36,9 @@
 #include "Main/jkServer.h"
 #include "Gui/jkGUIPlayer.h"
 #include "Platform/Common/stdLog.h"
+#ifdef PLATFORM_POSIX
+#include <unistd.h> // Added: isatty (clear)
+#endif
 #endif
 
 typedef struct sithCommandBind sithCommandBind;
@@ -62,6 +65,18 @@ int sithCommand_CmdQuit(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 #endif
 
 // Added: what kind of multiplayer game this is (connection, role, tick rate).
+// Added (2026-11-08): "clear" empties the console, as Quake 3's does. On a headless
+// (dedicated) server, whose console is the terminal, it clears the terminal's screen.
+int sithCommand_CmdClear(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    jkQuakeConsole_Clear();
+#ifdef PLATFORM_POSIX
+    if ( Main_bHeadless && isatty(STDOUT_FILENO) )
+        stdLog_TerminalPrintf("\033[2J\033[H");
+#endif
+    return 1;
+}
+
 int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 {
     if ( !sithNet_isMulti )
@@ -617,6 +632,7 @@ void sithCommand_Startup()
     sithConsole_RegisterCommand(sithCommand_CmdBind, "bind", 0);
     sithConsole_RegisterCommand(sithCommand_CmdUnbind, "unbind", 0);
     sithConsole_RegisterCommand(sithCommand_CmdGameInfo, "gameinfo", 0); // Added
+    sithConsole_RegisterCommand(sithCommand_CmdClear, "clear", 0); // Added
 #ifdef PLATFORM_DPLAY
     sithConsole_RegisterCommand(sithCommand_CmdCharacters, "characters", 0); // Added
     sithConsole_RegisterCommand(sithCommand_CmdCharacter, "character", 0); // Added
