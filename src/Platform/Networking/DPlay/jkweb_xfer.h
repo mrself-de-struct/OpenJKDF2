@@ -58,6 +58,8 @@ void jkx_HostWithdraw(void);
 // Sends some of the chunks joiners asked for, as the link takes them without
 // waiting (call on every network poll; jkweb_client.c does).
 void jkx_HostPump(void);
+// Added: the line of noshare.txt that holds back this mod (path and kind as jkx_HostOffer's), or 0
+int jkx_ModNotShared(const char* path, int isFile);
 
 // A "JKMT" frame from player `from` (jkweb_client.c): requests go to the
 // host side, answers to the download in progress.

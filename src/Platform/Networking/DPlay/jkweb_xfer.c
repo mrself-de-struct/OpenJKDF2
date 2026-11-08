@@ -1627,6 +1627,24 @@ static void jkx_OfferMap(const char* name, const char* ext)
 
 // mods.js host(): the running mod's pack, checked against the fingerprint
 // in our lobby tail.
+// Added (2026-11-08): the line of noshare.txt that holds back this mod, or 0. Several
+// always-loaded GOBs (resource/, mods/) are one mod, held back if any of them is listed.
+int jkx_ModNotShared(const char* path, int isFile)
+{
+    int line = 0;
+    if (!path || !path[0])
+        return 0;
+    if (isFile == JKMOD_SRC_ALWAYS_JK || isFile == JKMOD_SRC_ALWAYS_MOTS)
+    {
+        char one[512];
+        for (int i = 0; !line && jkmod_GetAlwaysLoaded(isFile == JKMOD_SRC_ALWAYS_MOTS, i, one, sizeof(one)); i++)
+            line = jkx_NoShare(one);
+    }
+    else
+        line = jkx_NoShare(path);
+    return line;
+}
+
 static void jkx_OfferMod(const char* path, int isFile, const uint8_t fp[32], const char* name, const char* ext)
 {
     jkx_offer* o = &XO[JKX_KIND_MOD];
@@ -1641,15 +1659,7 @@ static void jkx_OfferMod(const char* path, int isFile, const uint8_t fp[32], con
 
     o->active = 1;
     jkx_OfferInfo(o, "error", name, ext);
-    if (isFile == JKMOD_SRC_ALWAYS_JK || isFile == JKMOD_SRC_ALWAYS_MOTS)
-    {
-        // Added: several always-loaded GOBs as one mod: held back if any of them is listed.
-        char one[512];
-        for (int i = 0; !line && jkmod_GetAlwaysLoaded(isFile == JKMOD_SRC_ALWAYS_MOTS, i, one, sizeof(one)); i++)
-            line = jkx_NoShare(one);
-    }
-    else
-        line = jkx_NoShare(path);
+    line = jkx_ModNotShared(path, isFile);
     if (line)
     {
         jkx_OfferInfo(o, "not-shared", name, ext);

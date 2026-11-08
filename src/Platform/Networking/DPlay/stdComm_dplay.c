@@ -731,6 +731,11 @@ static int DPlay_RunXfer(int kind)
     }
     if (r == 1) return 1;
     if (r == -2) jkx_Cancel();
+    // Added (2026-11-08): a map or mod in the host's noshare.txt: no dialog. The join goes on
+    // as with a host that sends nothing: with the player's own copy if they have one, else
+    // the game's own "can't load level" when the level loads. (A mod: see DPlay_MatchHostMod.)
+    if (r != -2 && !strcmp(jkx_Reason(), "not-shared"))
+        return kind == JKX_KIND_MAP;
     if (jkx_Message()[0]) DPlay_Dialog(jkx_Message());
     return 0;
 }
@@ -929,6 +934,8 @@ static void DPlay_HostOffer(const char* pEpisode)
         return;
     stdString_SafeStrCopy(DPlay_aOfferedEpisode, pEpisode, sizeof(DPlay_aOfferedEpisode));
     haveMod = DPlay_OurModPath(fp, name, sizeof(name), modPath, sizeof(modPath), &isFile);
+    if (haveMod && jkx_ModNotShared(modPath, isFile))
+        haveMod = 0;   // Added: a mod in noshare.txt isn't offered (nor announced, DirectPlay_OpenHost)
     jkx_HostOffer(pEpisode, JKRES_GOB_EXT, haveMod ? modPath : NULL, isFile, haveMod ? fp : NULL, name);
     stdLog_Printf("net", "offering episode %s to joiners", pEpisode);
 }
@@ -1027,6 +1034,8 @@ static int DPlay_MatchHostMod(int idx, char16_t* pwPassword)
             jkx_StartMod(want, name, JKRES_GOB_EXT);
             ok = DPlay_RunXfer(JKX_KIND_MOD);
             dps_Close();
+            if (!ok && !strcmp(jkx_Reason(), "not-shared"))
+                return 0;   // Added: an (older) host that announces a mod it won't send: join without it
             if (!ok) return STDCOMM_DPLAY_HANDLED;
             snprintf(path, sizeof(path), "%s", jkx_ResultPath());
             snprintf(DPlay_netmodPath, sizeof(DPlay_netmodPath), "%s", path);
@@ -1850,6 +1859,22 @@ int DirectPlay_OpenHost(jkMultiEntry* pEntry)
         uint8_t fp[32], pack[JKMOD_PACK_FP];
         char name[JKMOD_MAX_NAME + 1], tail[JKMOD_MAX_TAIL_HEX + 1] = "";
         int haveMod = DPlay_OurMod(fp, name, sizeof(name));
+#ifdef PLATFORM_CURL
+        // Added (2026-11-08): a mod listed in noshare.txt isn't announced at all: the join
+        // screen shows no mod, nobody is asked to download it or restart into it, and
+        // joiners without it join as they are (a model or skin pack only changes looks).
+        {
+            uint8_t fp2[32];
+            char name2[JKMOD_MAX_NAME + 1], modPath[512];
+            int isFile = 0;
+            if (haveMod && DPlay_OurModPath(fp2, name2, sizeof(name2), modPath, sizeof(modPath), &isFile)
+                && jkx_ModNotShared(modPath, isFile))
+            {
+                haveMod = 0;
+                stdLog_Printf("net", "mod %s is in noshare.txt: not announced to joiners", name);
+            }
+        }
+#endif
         // and the MotS Remastered pack, as mods.js does. Added: on the Imperial Network Protocol too
         int havePack = (dps_IsWebLobbyActive() || dps_IsRelayActive()) && DPlay_OurPack(pack);
         jkmod_MakeTail(haveMod ? fp : NULL, name, havePack ? pack : NULL, tail, sizeof(tail));
