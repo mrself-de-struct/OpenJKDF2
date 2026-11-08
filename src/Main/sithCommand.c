@@ -140,6 +140,15 @@ int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     stdString_snprintf(std_g_genBuffer, 512, "You are the %s, %d player%s, tick rate %d msec",
                        sithNet_isServer ? "host" : "joiner", numPlayers, numPlayers == 1 ? "" : "s", sithNet_tickrate);
     sithConsole_PrintString(std_g_genBuffer);
+#ifdef PLATFORM_DPLAY
+    // Added: sv_strafeSpeed
+    if ( stdComm_DPlay_StrafeScale() >= 0.0 )
+        stdString_snprintf(std_g_genBuffer, 512, "Sidestep speed: %.2f of forward (set by the server; JK.EXE's is 0.70)",
+                           (double)stdComm_DPlay_StrafeScale());
+    else
+        stdString_snprintf(std_g_genBuffer, 512, "Sidestep speed: your own (g_bEqualStrafeSpeed %d)", jkPlayer_bEqualStrafeSpeed);
+    sithConsole_PrintString(std_g_genBuffer);
+#endif
     return 1;
 }
 

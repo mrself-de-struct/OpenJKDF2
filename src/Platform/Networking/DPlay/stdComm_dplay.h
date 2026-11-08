@@ -17,6 +17,9 @@ void stdComm_DPlay_Startup();
 // OpenJKDF2's own message layouts (the jkdf2mp web lobby) instead of JK.EXE's.
 extern int stdComm_bOpenJkdf2Wire;
 extern int stdComm_DPlay_downloadRateKB; // Added: sv_downloadRate (KB/s), see stdComm_dplay.c
+extern float stdComm_DPlay_strafeSpeed;  // Added: sv_strafeSpeed (a flex_t cvar), see stdComm_dplay.c
+void stdComm_DPlay_StrafeTick(void);     // Added: a host's sv_strafeSpeed into its game's description
+float stdComm_DPlay_StrafeScale(void);   // Added: the game's sidestep speed (part of forward), -1 none
 
 // The server the selected connection uses: 0 none (DirectPlay), 1 OpenJKDF2
 // Online relay, 2 web lobby. Get/Set read and save its address

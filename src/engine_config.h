@@ -155,6 +155,11 @@
 #define DPLAY_XFER_MIN_KB          (512)
 #define DPLAY_XFER_MAX_KB          (102400)
 
+// Added: sv_strafeSpeed (stdComm_dplay.c), everyone's sidestep speed in a host's Imperial
+// Network Protocol games as a part of forward speed: its default (JK.EXE's) and the most
+#define DPLAY_STRAFE_SPEED_DEFAULT (0.7)
+#define DPLAY_STRAFE_SPEED_MAX     (2.0)
+
 #if defined(QOL_IMPROVEMENTS) && !defined(TARGET_RETRO_HOMEBREW)
 #define SITH_MAX_SYNC_THINGS (128)
 #else

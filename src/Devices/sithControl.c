@@ -24,6 +24,9 @@
 #include "Main/Main.h"
 #include "Dw/dwCog.h"
 #include "jk.h"
+#ifdef PLATFORM_DPLAY
+#include "Platform/Networking/DPlay/stdComm_dplay.h" // Added: stdComm_DPlay_StrafeRule
+#endif
 #ifdef ARCH_WASM
 #include <emscripten.h>
 #endif
@@ -32,6 +35,12 @@
 static flex_d_t sithControl_GetStrafeSpeedScale(void)
 {
 #ifdef QOL_IMPROVEMENTS
+#ifdef PLATFORM_DPLAY
+    // Added: in an Imperial Network Protocol game, the server's sv_strafeSpeed if it set one
+    flex_t scale = stdComm_DPlay_StrafeScale();
+    if (scale >= 0.0)
+        return scale;
+#endif
     return jkPlayer_bEqualStrafeSpeed ? 1.0 : 0.7;
 #else
     return 0.7;

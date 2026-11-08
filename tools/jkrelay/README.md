@@ -141,6 +141,8 @@ answered, as a Join screen sees them. CORS is open (`Access-Control-Allow-Origin
   listed from the relay's own machine or LAN (`address` null; players reach it at the relay's).
 - `mod`: the host's mod by name, null for none; `tail`: the raw mods.js tail.
 - `hitRules`: `classic` or `hwys` (Hit what you see).
+- `strafeSpeed`: the game's sidestep speed as a part of forward speed (`sv_strafeSpeed`; 0.7 is
+  JK.EXE's), or null when it doesn't set one (each player's own).
 
 Behind Apache, give it its own line above the WebSocket one, since `ws://` lines only
 carry WebSockets:
@@ -325,6 +327,19 @@ for everyone downloading at once, shared fairly between them, default 2048, 512 
 102400. Each player's own rate starts at 1 MB/s, rises while nothing is lost and drops
 when a part has to be sent again, so a slow connection doesn't hold up the others.
 Lower it if downloads make the game lag for the players already in it.
+
+### Sidestep speed
+
+JK.EXE sidesteps at 0.7 of forward speed. OpenJKDF2 players can choose to sidestep as
+fast as they run forward (the Control options' "equal strafe speed" box, cvar
+`g_bEqualStrafeSpeed`, on by default). In a server's games the server decides for
+everyone with the cvar `sv_strafeSpeed` (in `openjkdf2_cvars.json`;
+`rcon sv_strafeSpeed <n>` applies at once): the sidestep speed as a part of forward
+speed, 0.7 (JK.EXE's) by default, 1.0 as fast as forward, anything from 0 to 2. It's
+in the game's description, so players use it while they're in that game and get their
+own setting back afterwards; `gameinfo` shows it. Builds before 2026-11-06 don't know
+it and keep their own setting, and like everything about movement it's up to each
+player's game: an agreement, not a check.
 
 ### Admin commands and rcon
 

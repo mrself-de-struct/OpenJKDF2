@@ -2270,6 +2270,10 @@ static void jb_game(jbuf_t* b, const session_t* s, uint32_t players, const liste
     jb_put(b, ",\"players\":%u,\"maxPlayers\":%u,\"password\":%s,\"maxRank\":%u,\"tickRateMs\":%u,\"modeFlags\":%u",
            players, s->maxPlayers, ((s->flags & 0x400) || s->passwordLen) ? "true" : "false",
            s->user[2] >> 16, s->user[3], s->user[1]);
+    if (s->flags & 0x04000000u)   // Added: sv_strafeSpeed (stdComm_dplay.c), a part of forward speed
+        jb_put(b, ",\"strafeSpeed\":%u.%02u", (unsigned)((s->flags >> 16) & 0xFF) / 100, (unsigned)((s->flags >> 16) & 0xFF) % 100);
+    else
+        jb_put(b, ",\"strafeSpeed\":null");
     jb_put(b, ",\"hitRules\":\"%s\",\"sharesFiles\":%s,\"openjkdf2Layouts\":%s",
            (s->flags & 0x10000000u) ? "hwys" : "classic", (s->flags & 0x08000000u) ? "true" : "false",
            (s->flags & 0x20000000u) ? "true" : "false");

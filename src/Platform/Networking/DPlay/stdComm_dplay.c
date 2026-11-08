@@ -90,6 +90,31 @@ static const uint8_t DPlay_kJkAppGuid[16] = {
 // Added: an Imperial Network Protocol host that serves its map and mod to joiners
 // (jkweb_xfer.c over the relay, 2026-10-29). Joiners ask only such hosts.
 #define DPLAY_SESSION_XFER 0x08000000u
+// Added (2026-11-06): sv_strafeSpeed, an Imperial Network Protocol host's sidestep speed
+// for everyone in its games, as a part of forward speed: 0.7 (the default) is JK.EXE's,
+// 1.0 as fast as forward (g_bEqualStrafeSpeed, each player's own choice otherwise). In
+// the game's description, in hundredths (0x00FF0000, flags DirectPlay never gets), so
+// joiners (new builds) use it while in that game (stdComm_DPlay_StrafeScale,
+// sithControl.c); older builds keep their own.
+#define DPLAY_SESSION_STRAFE_SET   0x04000000u
+#define DPLAY_SESSION_STRAFE_VALUE 0x00FF0000u
+#define DPLAY_SESSION_STRAFE_SHIFT 16
+#define DPLAY_SESSION_STRAFE_MASK  (DPLAY_SESSION_STRAFE_SET | DPLAY_SESSION_STRAFE_VALUE)
+float stdComm_DPlay_strafeSpeed = DPLAY_STRAFE_SPEED_DEFAULT;   // sv_strafeSpeed (jkServer.c)
+
+// sv_strafeSpeed in hundredths, 0..DPLAY_STRAFE_SPEED_MAX
+static uint32_t DPlay_StrafeHundredths(void)
+{
+    float v = stdComm_DPlay_strafeSpeed;
+    if (!(v > 0.0)) v = 0.0;   // also NaN
+    if (v > DPLAY_STRAFE_SPEED_MAX) v = DPLAY_STRAFE_SPEED_MAX;
+    return (uint32_t)(v * 100.0 + 0.5);
+}
+
+static uint32_t DPlay_StrafeFlags(void)
+{
+    return DPLAY_SESSION_STRAFE_SET | (DPlay_StrafeHundredths() << DPLAY_SESSION_STRAFE_SHIFT);
+}
 
 static int DPlay_bStarted = 0;
 
@@ -1123,6 +1148,45 @@ void stdComm_DPlay_Idle(void)
 #endif
 }
 
+// Added (2026-11-06): a host's sv_strafeSpeed goes into its game's description as soon as
+// it changes (rcon), not only at the next level. Called every frame (jkServer_Tick).
+void stdComm_DPlay_StrafeTick(void)
+{
+    static uint32_t last = 0xFFFFFFFFu;
+    dps_session s;
+    if (!sithNet_isMulti || !dps_IsRelayActive() || !dps_RelayIsHost() || DPlay_StrafeFlags() == last)
+        return;
+    if (FAILED(dps_GetSessionDesc(&s)))
+        return;
+    last = DPlay_StrafeFlags();
+    if ((s.flags & DPLAY_SESSION_STRAFE_MASK) == last)
+        return;
+    s.flags = (s.flags & ~DPLAY_SESSION_STRAFE_MASK) | last;
+    dps_SetSessionDesc(&s);
+    stdPlatform_Printf("OpenJKDF2: sidestep speed %.2f of forward for everyone\n", DPlay_StrafeHundredths() / 100.0);
+}
+
+// Added: the sidestep speed the game this machine is in sets (a part of forward speed),
+// or -1: none (an older host, or not an Imperial Network Protocol game), each player's
+// own g_bEqualStrafeSpeed then. Asked every physics step, so the game's description is
+// read at most every 200 ms.
+float stdComm_DPlay_StrafeScale(void)
+{
+    static uint32_t lastMs = 0;
+    static float scale = -1.0f;
+    dps_session s;
+    uint32_t now = stdPlatform_GetTimeMsec();
+    if (!sithNet_isMulti || !dps_IsRelayActive())
+        return -1.0;
+    if (lastMs && now - lastMs < 200)
+        return scale;
+    lastMs = now ? now : 1;
+    scale = -1.0;
+    if (SUCCEEDED(dps_GetSessionDesc(&s)) && (s.flags & DPLAY_SESSION_STRAFE_SET))
+        scale = ((s.flags & DPLAY_SESSION_STRAFE_VALUE) >> DPLAY_SESSION_STRAFE_SHIFT) / 100.0;
+    return scale;
+}
+
 int stdComm_DPlay_ServerKind(void)
 {
     return dps_IsRelayActive() ? 1 : (dps_IsWebLobbyActive() ? 2 : 0);
@@ -1804,6 +1868,8 @@ int DirectPlay_OpenHost(jkMultiEntry* pEntry)
     if (dps_IsRelayActive())
         s.flags |= DPLAY_SESSION_XFER; // Added: we serve our map and mod (below)
 #endif
+    if (dps_IsRelayActive())
+        s.flags |= DPlay_StrafeFlags(); // Added: sv_strafeSpeed
     // Added: Hit what you see, when this host plays it (its hellos tell the other games)
     stdComm_WSRelay_ResetHits();
     stdComm_WSRelay_ResetMotion();
@@ -1908,6 +1974,8 @@ void DirectPlay_SetSessionDesc(const char* pJklFname, DWORD maxPlayers)
 
     // Re-encode only the name; keep the live flags/user fields/password untouched.
     DPlay_EncodeSessionName(s.name, DPS_NAME_MAX, &e);
+    if (dps_IsRelayActive())
+        s.flags = (s.flags & ~DPLAY_SESSION_STRAFE_MASK) | DPlay_StrafeFlags(); // Added: sv_strafeSpeed now
     // Added: the hit rules this host plays by now (sv_hitRules can change between levels)
     if (dps_IsRelayActive() && stdComm_bOpenJkdf2Wire)
     {

@@ -608,6 +608,7 @@ void jkServer_Tick(void)
     char aCmd[512];
     static int lastFlood = -1, lastTries = -1, lastBlock = -1;
     jkServer_VoteTick();
+    stdComm_DPlay_StrafeTick(); // Added: sv_strafeSpeed changes reach the players at once
     if ( dps_ServerListening() && (jkServer_bFloodProtect != lastFlood || jkServer_rconMaxTries != lastTries
                                    || jkServer_rconBlockMinutes != lastBlock) )
     {
@@ -759,6 +760,8 @@ void jkServer_StartupCvars(void)
     sithCvar_RegisterInt("sv_rconBlockMinutes", 5, &jkServer_rconBlockMinutes, CVARFLAG_GLOBAL);
     // Added: how fast a host sends maps and mods to joiners (KB/s, all of them together)
     sithCvar_RegisterInt("sv_downloadRate", DPLAY_XFER_RATE_DEFAULT_KB, &stdComm_DPlay_downloadRateKB, CVARFLAG_GLOBAL);
+    // Added: everyone's sidestep speed in this host's games, a part of forward speed (0.7 JK.EXE's)
+    sithCvar_RegisterFlex("sv_strafeSpeed", DPLAY_STRAFE_SPEED_DEFAULT, &stdComm_DPlay_strafeSpeed, CVARFLAG_GLOBAL);
 }
 
 // The sv_allowVote bit for a kind of vote by name, 0 if it isn't one.
