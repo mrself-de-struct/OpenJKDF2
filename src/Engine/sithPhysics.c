@@ -156,6 +156,11 @@ LABEL_8:
 
 void sithPhysics_UpdateThing(SithThing *pThing, flex_t secDeltaTime)
 {
+#ifdef FIXED_TIMESTEP_PHYS
+    rdVector3 keptAcceleration;
+    int bKeepAcceleration;
+#endif
+
     if (!pThing->sector)
         return;
 
@@ -167,6 +172,18 @@ void sithPhysics_UpdateThing(SithThing *pThing, flex_t secDeltaTime)
     {
         rdVector_Zero3(&pThing->physicsParams.acceleration);
     }
+
+#ifdef FIXED_TIMESTEP_PHYS
+    // Added (2026-11-08): the air and water physics scale a player's acceleration in place
+    // (x0.3 in the air, x0.6 in water), once per frame in JK.EXE, where the controls set it
+    // again every frame. With fixed steps the controls still set it once per frame, but the
+    // physics run several steps in between, so the scaling compounded (0.3, 0.09, 0.027...):
+    // at 150 Hz a player rendering at 60 fps had about half of JK.EXE's air control and swam
+    // slower, depending on their frame rate. Each step now starts from the controls' value.
+    bKeepAcceleration = (pThing->type == SITH_THING_PLAYER) && (NEEDS_STEPPED_PHYS);
+    if (bKeepAcceleration)
+        rdVector_Copy3(&keptAcceleration, &pThing->physicsParams.acceleration);
+#endif
 
     if (pThing->attach_flags & (SITH_ATTACH_THINGFACE | SITH_ATTACH_SURFACE))
     {
@@ -202,6 +219,11 @@ void sithPhysics_UpdateThing(SithThing *pThing, flex_t secDeltaTime)
     {
         sithPhysics_UpdateThingPhysics(pThing, secDeltaTime);
     }
+
+#ifdef FIXED_TIMESTEP_PHYS
+    if (bKeepAcceleration)
+        rdVector_Copy3(&pThing->physicsParams.acceleration, &keptAcceleration); // Added: see above
+#endif
 }
 
 void sithPhysics_ApplyForce(SithThing *pThing, rdVector3 *force)
