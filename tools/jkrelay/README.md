@@ -245,7 +245,7 @@ server (for N more minutes)." Players with older builds see the game end as befo
 Players vote from the console (as in Quake 3): `callvote map <level or GOB:level>`,
 `callvote kick <name or slot>`, `callvote rank <0-8>`, `callvote scorelimit <points>`,
 `callvote timelimit <minutes>` (0 = none for the limits), then `vote yes` / `vote no`
-(`vote 1` or more is yes, `vote 0` or less no). `servermaps [text]` lists the server's
+(`vote 1` or more is yes, `vote 0` or less no). `servermaps [text or GOB]` lists the server's
 levels (the server's `maplist`, which answers without the rcon password). A vote runs
 30 s and passes as soon as more than half the players in the game voted yes, fails as
 soon as half voted no, or fails when its time is up (Quake 3's rule); the caller's vote
@@ -354,7 +354,7 @@ Typed at the dedicated server's terminal, or sent from anywhere with rcon:
 | `say <message>` | "Server: message" to everyone |
 | `map <level>` or `map <GOB>:<level>` | that level now (after the usual 10 s end of level), from another episode too |
 | `nextmap [<level> or <GOB>:<level>]` | after this level (or shows it) |
-| `maplist [<text>]` | every level in the server's `Episode` GOBs, `title \| level \| GOB`; with text, those whose title, level or GOB contain it |
+| `maplist [<text> or <GOB>]` | every level in the server's multiplayer `Episode` GOBs (single-player episodes such as JK1.GOB left out), `title \| level \| GOB`; with text, those whose title, level or GOB contain it; with a GOB's name (`maplist JK1MP`, `.gob` optional), all the levels in that GOB |
 | `restart` | this level again |
 | `timelimit <minutes>`, `scorelimit <points>` | for this game; 0 = none (server.json keeps the starting ones) |
 | `password [<password>]` | for players joining from now on; none = no password |

@@ -423,16 +423,60 @@ static int jkServer_GobLevelTitle(Gob* pGob, const char* pJkl, char* pOut, size_
     return bFound;
 }
 
-// maplist [text]: every level in the game's episode GOBs, "title | level | GOB",
-// or those whose title, level or GOB has 'text' in it.
+// Added (2026-11-07): whether a GOB's episode is for multiplayer: its episode.jk says
+// TYPE deathmatch (2), CTF (8), MotS saber-only (16) or another non-single-player
+// type. No episode.jk, or no TYPE line (which jkEpisode reads as single player): no.
+static int jkServer_GobIsMultiplayer(Gob* pGob)
+{
+    GobFileHandle* f;
+    char aLine[256];
+    int type = 0;
+    if ( !(f = stdGob_FileOpen(pGob, "episode.jk")) )
+        return 0;
+    while ( stdGob_FileGets(f, aLine, sizeof(aLine)) )
+    {
+        char* p = aLine;
+        while ( *p == ' ' || *p == '\t' ) p++;
+        if ( !__strnicmp(p, "TYPE", 4) && (p[4] == ' ' || p[4] == '\t') )
+        {
+            type = atoi(p + 5);
+            break;
+        }
+    }
+    stdGob_FileClose(f);
+    return (type & ~JK_EPISODE_SINGLEPLAYER) != 0;
+}
+
+// Added (2026-11-07): whether a GOB file name (as found in episode/) is the one named,
+// with or without its extension, any case: "JK1MP", "jk1mp.gob", "Hub Level Pack 2005".
+static int jkServer_IsGobNamed(const char* pFile, const char* pName)
+{
+    size_t n = strlen(pName);
+    if ( !n || __strnicmp(pFile, pName, n) )
+        return 0;
+    return !pFile[n] || (pFile[n] == '.' && !strchr(pFile + n + 1, '.') && !strchr(pName, '.'));
+}
+
+// maplist [text]: every level in the game's multiplayer episode GOBs, "title | level | GOB",
+// or those whose title, level or GOB has 'text' in it. Altered (2026-11-07): single-player
+// episodes (JK1.GOB, TYPE 1) are left out; servermaps asks for this. "maplist <GOB>" (a GOB's
+// name, with or without .gob) lists all the levels in that GOB alone, whatever its type.
 static int jkServer_CmdMapList(stdDebugConsoleCmd* pCmd, const char* pArgStr)
 {
     char aFilter[64], aPath[160], aJkl[64], aTitle[128];
     stdFileSearch* pSearch;
     stdFileSearchResult res;
     int numLevels = 0;
+    int bGobOnly = 0;   // Added: "maplist <GOB>"
 
     jkServer_Trim(pArgStr, aFilter, sizeof(aFilter));
+    // Added: is the text a GOB's name? Then that GOB alone.
+    if ( aFilter[0] && (pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+    {
+        while ( !bGobOnly && stdFileUtil_FindNext(pSearch, &res) )
+            bGobOnly = !res.is_subdirectory && res.fpath[0] != '.' && jkServer_IsGobNamed(res.fpath, aFilter);
+        stdFileUtil_DisposeFind(pSearch);
+    }
     if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
         return 1;
     while ( stdFileUtil_FindNext(pSearch, &res) )
@@ -440,9 +484,16 @@ static int jkServer_CmdMapList(stdDebugConsoleCmd* pCmd, const char* pArgStr)
         Gob* pGob;
         if ( res.is_subdirectory || res.fpath[0] == '.' )
             continue;
+        if ( bGobOnly && !jkServer_IsGobNamed(res.fpath, aFilter) )   // Added
+            continue;
         stdString_snprintf(aPath, sizeof(aPath), "episode%c%s", LEC_PATH_SEPARATOR_CHR, res.fpath);
         if ( !(pGob = stdGob_Load(aPath, 2, 0)) )
             continue;
+        if ( !bGobOnly && !jkServer_GobIsMultiplayer(pGob) )   // Added
+        {
+            stdGob_Free(pGob);
+            continue;
+        }
 #ifndef STDGOB_COMPACT_ENTRIES
         for ( uint32_t i = 0; i < pGob->numFiles; i++ )
         {
@@ -453,7 +504,8 @@ static int jkServer_CmdMapList(stdDebugConsoleCmd* pCmd, const char* pArgStr)
             stdString_SafeStrCopy(aJkl, pName + 4, sizeof(aJkl));
             if ( !jkServer_GobLevelTitle(pGob, aJkl, aTitle, sizeof(aTitle)) )
                 stdString_SafeStrCopy(aTitle, "-", sizeof(aTitle));
-            if ( !jkServer_Contains(aTitle, aFilter) && !jkServer_Contains(aJkl, aFilter) && !jkServer_Contains(res.fpath, aFilter) )
+            if ( !bGobOnly && !jkServer_Contains(aTitle, aFilter) && !jkServer_Contains(aJkl, aFilter)
+                 && !jkServer_Contains(res.fpath, aFilter) )
                 continue;
             jkServer_Print("%s | %s | %s", aTitle, aJkl, res.fpath);
             numLevels++;
