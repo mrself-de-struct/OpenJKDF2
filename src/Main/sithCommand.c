@@ -155,6 +155,30 @@ int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     stdString_snprintf(std_g_genBuffer, 512, "You are the %s, %d player%s, tick rate %d msec",
                        sithNet_isServer ? "host" : "joiner", numPlayers, numPlayers == 1 ? "" : "s", sithNet_tickrate);
     sithConsole_PrintString(std_g_genBuffer);
+    // Added: the game's limits. Joiners only learn whether they're on (mode flags); the values stay on the host.
+    if ( !(sithNet_MultiModeFlags & MULTIMODEFLAG_TIMELIMIT) )
+        stdString_snprintf(std_g_genBuffer, 512, "Time limit: none");
+    else if ( sithNet_isServer )
+    {
+        int secsLeft = (int)((sithNet_multiplayer_timelimit - (int32_t)sithTime_g_msecGameTime) / 1000);
+        if ( secsLeft < 0 )
+            secsLeft = 0;
+        stdString_snprintf(std_g_genBuffer, 512, "Time limit: %d:%02d (%d:%02d left)",
+                           sithNet_multiplayer_timelimit / 60000, (sithNet_multiplayer_timelimit / 1000) % 60,
+                           secsLeft / 60, secsLeft % 60);
+    }
+    else
+        stdString_snprintf(std_g_genBuffer, 512, "Time limit: on (the host has the value)");
+    sithConsole_PrintString(std_g_genBuffer);
+    if ( !(sithNet_MultiModeFlags & MULTIMODEFLAG_SCORELIMIT) )
+        stdString_snprintf(std_g_genBuffer, 512, "Score limit: none");
+    else if ( sithNet_isServer )
+        stdString_snprintf(std_g_genBuffer, 512, "Score limit: %d%s", sithNet_scorelimit,
+                           (sithNet_MultiModeFlags & MULTIMODEFLAG_TEAMS) ? " (team score)" : "");
+    else
+        stdString_snprintf(std_g_genBuffer, 512, "Score limit: on (the host has the value)%s",
+                           (sithNet_MultiModeFlags & MULTIMODEFLAG_TEAMS) ? ", team score" : "");
+    sithConsole_PrintString(std_g_genBuffer);
 #ifdef PLATFORM_DPLAY
     // Added: sv_strafeSpeed
     if ( stdComm_DPlay_StrafeScale() >= 0.0 )
