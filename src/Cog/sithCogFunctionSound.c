@@ -46,11 +46,11 @@ void sithCogFunctionSound_PlaySoundThing(sithCog *pCog)
     }
 
     if ( minDist >= 0.0 )
-        minDist_act = minDist * 0.1;
+        minDist_act = minDist * (cog_flex_t)0.1;
     else
         minDist_act = 0.5;
     if ( maxDist >= 0.0 )
-        maxDist_act = maxDist * 0.1;
+        maxDist_act = maxDist * (cog_flex_t)0.1;
     else
         maxDist_act = 2.5;
     maxDist_act_ = maxDist_act;
@@ -365,7 +365,7 @@ void sithCogFunctionSound_GetSoundLen(sithCog *pCog)
 
     if (pSound)
     {
-        sithCogExec_PushFlex(pCog, (flex_d_t)pSound->sound_len * 0.001);
+        sithCogExec_PushFlex(pCog, (flex_d_t)pSound->sound_len * (cog_flex_t)0.001);
     }
     else
     {

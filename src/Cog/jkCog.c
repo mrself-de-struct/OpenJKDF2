@@ -169,6 +169,7 @@ void jkCog_SetFlags(sithCog *ctx)
 {
     signed int flags; // esi
     SithThing *thing; // eax
+    uint32_t oldFlags;
 
     flags = sithCogExec_PopInt(ctx);
     thing = sithCogExec_PopThing(ctx);
@@ -177,8 +178,9 @@ void jkCog_SetFlags(sithCog *ctx)
         // Added: with -verboseNetworking, note scripts changing other players' saber flags here
         if (Main_bVerboseNetworking && sithNet_isMulti && thing->type == SITH_THING_PLAYER && thing != sithPlayer_g_pLocalPlayerThing)
             stdPlatform_Printf("jkCog: %s jkSetFlags(%08x, %x), jkFlags %x\n", JKCOG_LOGNAME(ctx), thing->guid, flags, thing->jkFlags);
+        oldFlags = thing->jkFlags;
         thing->jkFlags |= flags;
-        if ( COG_SHOULD_SYNC(ctx) )
+        if ( COG_SHOULD_SYNC(ctx) && thing->jkFlags != oldFlags )
         {
             sithThing_SyncThing(thing, SITHTHING_SYNC_STATE);
         }
@@ -189,6 +191,7 @@ void jkCog_ClearFlags(sithCog *ctx)
 {
     signed int v1; // esi
     SithThing *v2; // eax
+    uint32_t oldFlags;
 
     v1 = sithCogExec_PopInt(ctx);
     v2 = sithCogExec_PopThing(ctx);
@@ -199,8 +202,9 @@ void jkCog_ClearFlags(sithCog *ctx)
             // Added: with -verboseNetworking, note scripts changing other players' saber flags here
             if (Main_bVerboseNetworking && sithNet_isMulti && v2->type == SITH_THING_PLAYER && v2 != sithPlayer_g_pLocalPlayerThing)
                 stdPlatform_Printf("jkCog: %s jkClearFlags(%08x, %x), jkFlags %x\n", JKCOG_LOGNAME(ctx), v2->guid, v1, v2->jkFlags);
+            oldFlags = v2->jkFlags;
             v2->jkFlags &= ~v1;
-            if ( COG_SHOULD_SYNC(ctx) )
+            if ( COG_SHOULD_SYNC(ctx) && v2->jkFlags != oldFlags )
             {
                 sithThing_SyncThing(v2, SITHTHING_SYNC_STATE);
             }
@@ -236,7 +240,7 @@ void jkCog_SetWeaponMesh(sithCog *ctx)
     if ( actorThing )
     {
         // MOTS added:
-        if (!actorThing->playerInfo) {
+        if (Main_bMotsCompat && !actorThing->playerInfo) {
             jkPlayer_FUN_00404fe0(actorThing);
         }
         v4 = actorThing->playerInfo;

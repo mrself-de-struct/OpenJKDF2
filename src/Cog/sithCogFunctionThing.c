@@ -283,7 +283,7 @@ void sithCogFunctionThing_DamageThing(sithCog *pCog)
     {
         if ( !pThing )
             pThing = pThing2;
-        if ( COG_SHOULD_SYNC(pCog) )
+        if ( COG_SHOULD_SYNC(pCog) && sithNet_isServer )
         {
             sithDSSThing_DamageThing(pThing2, pThing, a5, a4, -1, 1);
         }
@@ -364,10 +364,10 @@ void sithCogFunctionThing_JumpToFrame(sithCog *pCog)
 
 void sithCogFunctionThing_MoveToFrame(sithCog *pCog)
 {
-    cog_flex_t speed = sithCogExec_PopFlex(pCog) * 0.1;
+    cog_flex_t speed = sithCogExec_PopFlex(pCog) * (cog_flex_t)0.1;
     int frame = sithCogExec_PopInt(pCog);
     SithThing* pThing = sithCogExec_PopThing(pCog);
-    if ( pThing && pThing->moveType == SITH_MT_PATH && pThing->trackParams.loadedFrames > frame )
+    if ( pThing && pThing->moveType == SITH_MT_PATH && (uint32_t)pThing->trackParams.loadedFrames > (uint32_t)frame )
     {
         if ( speed == 0.0 )
             speed = 0.5;
@@ -381,10 +381,10 @@ void sithCogFunctionThing_MoveToFrame(sithCog *pCog)
 
 void sithCogFunctionThing_SkipToFrame(sithCog *pCog)
 {
-    cog_flex_t speed = sithCogExec_PopFlex(pCog) * 0.1;
+    cog_flex_t speed = sithCogExec_PopFlex(pCog) * (cog_flex_t)0.1;
     int frame = sithCogExec_PopInt(pCog);
     SithThing* pThing = sithCogExec_PopThing(pCog);
-    if ( pThing && pThing->moveType == SITH_MT_PATH && pThing->trackParams.loadedFrames > frame )
+    if ( pThing && pThing->moveType == SITH_MT_PATH && (uint32_t)pThing->trackParams.loadedFrames > (uint32_t)frame )
     {
         if ( speed == 0.0 )
             speed = 0.5;
@@ -1057,6 +1057,10 @@ void sithCogFunctionThing_PlayMode(sithCog *pCog)
                 sithDSSThing_PlayKeyMode(pThing, mode, pThing->renderData.puppet->aTracks[track].field_130, -1, 255);
             }
         }
+        else
+        {
+            sithCogExec_PushInt(pCog, -1);
+        }
     }
     else
     {
@@ -1280,8 +1284,8 @@ void sithCogFunctionThing_SetThingModel(sithCog *pCog)
         else
         {
             v5 = v4->id;
-            sithThing_SetThingModel(pThing, model);
         }
+        sithThing_SetThingModel(pThing, model);
 
         sithCogExec_PushInt(pCog, v5);
 
@@ -1411,7 +1415,7 @@ void sithCogFunctionThing_SetCollideType(sithCog *pCog)
     int collideType = sithCogExec_PopInt(pCog);
     SithThing* pThing = sithCogExec_PopThing(pCog);
 
-    if ( pThing && collideType < 4)
+    if ( pThing && (uint32_t)collideType < 4)
     {
         pThing->collide = collideType;
 
@@ -1780,7 +1784,7 @@ void sithCogFunctionThing_GetLifeleft(sithCog *pCog)
     SithThing* pThing = sithCogExec_PopThing(pCog);
     if (pThing)
     {
-        sithCogExec_PushFlex(pCog, (flex_d_t)(unsigned int)pThing->msecLifeLeft * 0.001);
+        sithCogExec_PushFlex(pCog, (flex_d_t)(unsigned int)pThing->msecLifeLeft * 0.001f);
     }
 }
 

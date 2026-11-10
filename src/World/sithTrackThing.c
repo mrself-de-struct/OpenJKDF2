@@ -11,7 +11,7 @@
 
 void sithTrackThing_MoveToFrame(SithThing *thing, int goalFrame, flex_t a3)
 {
-    if ( goalFrame < thing->trackParams.loadedFrames )
+    if ( (uint32_t)goalFrame < (uint32_t)thing->trackParams.loadedFrames )
     {
         thing->trackParams.flags |= 4u;
         thing->trackParams.moveVel = a3;

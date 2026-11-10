@@ -387,7 +387,7 @@ int _strncmp(const char *s1, const char *s2, size_t n)
 
 flex_t _frand()
 {
-    return (flex_t)(_rand() & 0x7FFF) * 0.000030518509;
+    return (flex_t)((flex_d_t)(_rand() & 0x7FFF) * (flex_d_t)0.000030518509f);
 }
 
 int __wcscmp(const char16_t *a, const char16_t *b)

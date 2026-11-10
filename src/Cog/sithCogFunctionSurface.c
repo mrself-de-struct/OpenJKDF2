@@ -147,7 +147,7 @@ void sithCogFunctionSurface_SlideWall(sithCog *pCog)
     rdSurface *v5; // ebx
     rdVector3 v7; // [esp+Ch] [ebp-Ch] BYREF
 
-    cog_flex_t scale = sithCogExec_PopFlex(pCog) * 0.1;
+    cog_flex_t scale = sithCogExec_PopFlex(pCog) * (cog_flex_t)0.1;
     pop_vec = sithCogExec_PopVector(pCog, &v7);
     surface = sithCogExec_PopSurface(pCog);
     v4 = surface;
@@ -327,14 +327,11 @@ void sithCogFunctionSurface_ClearAdjoinFlags(sithCog *pCog)
 void sithCogFunctionSurface_GetAdjoinFlags(sithCog *pCog)
 {
     SithSurface* surface = sithCogExec_PopSurface(pCog);
-    if (surface && surface->pAdjoin)
-    {
-        sithCogExec_PushInt(pCog, surface->pAdjoin->flags);
-    }
-    else
-    {
+    if (!surface)
         sithCogExec_PushInt(pCog, -1);
-    }
+    else if (surface->pAdjoin)
+        sithCogExec_PushInt(pCog, surface->pAdjoin->flags);
+    // A surface without an adjoin pushes nothing
 }
 
 void sithCogFunctionSurface_SetFaceType(sithCog *pCog)

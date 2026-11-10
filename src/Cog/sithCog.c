@@ -649,7 +649,12 @@ sithCog* sithCog_Load(const char *pName)
         v9 = sithWorld_g_pLastLoadedWorld->numCogScripts;
         if ( v9 < sithWorld_g_pLastLoadedWorld->sizeCogScripts && (v8 = &sithWorld_g_pLastLoadedWorld->aCogScripts[v9], sithCogParse_Load(aName, v8, 0)) )
         {
-            stdHashtbl_Add(sithCog_g_pHashtable, aName, v8); // Added: v8 -> no v8 for aName
+#ifdef SITH_DEBUG_STRUCT_NAMES
+            // The copies of names are load-bearing, SetKeyVal stores a reference
+            stdHashtbl_Add(sithCog_g_pHashtable, v8->aName, v8);
+#else
+            stdHashtbl_Add(sithCog_g_pHashtable, pName, v8);
+#endif
             ++sithWorld_g_pLastLoadedWorld->numCogScripts;
         }
         else
@@ -660,7 +665,7 @@ sithCog* sithCog_Load(const char *pName)
     if ( !v8 )
         return 0;
 #ifdef SITH_DEBUG_STRUCT_NAMES
-    stdString_SafeStrCopy(cog->aName, aName, 32); // v8 -> no v8 for aName
+    stdString_SafeStrCopy(cog->aName, v8->aName, 32);
 #endif
     cog->pScript = v8;
     cog->flags = v8->flags;

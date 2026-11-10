@@ -306,8 +306,7 @@ void sithCogFunctionPlayer_SetPlayerSuicides(sithCog *pCog)
 {
     int numSuicides = sithCogExec_PopInt(pCog);
     SithThing* player = sithCogExec_PopThing(pCog);
-    if ((!sithNet_isMulti || sithNet_isServer)
-        && player
+    if (player
         && player->type == SITH_THING_PLAYER)
     {
         SithPlayer* playerInfo = player->actorParams.pPlayer;
@@ -354,7 +353,7 @@ void sithCogFunctionPlayer_NthBackpackBin(sithCog *pCog)
 
 void sithCogFunctionPlayer_NthBackpackValue(sithCog *pCog)
 {
-    int ret;
+    cog_flex_t ret;
 
     int n = sithCogExec_PopInt(pCog);
     SithThing* thing = sithCogExec_PopThing(pCog);
@@ -363,7 +362,7 @@ void sithCogFunctionPlayer_NthBackpackValue(sithCog *pCog)
         && (thing->itemParams.flags & SITH_ITEM_BACKPACK))
     {
         ret = sithInventory_GetBackpackItemValue(thing, n);
-        sithCogExec_PushInt(pCog, ret);
+        sithCogExec_PushFlex(pCog, ret);
     }
 }
 

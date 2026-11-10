@@ -382,7 +382,7 @@ void sithCogFunction_SetTimerEx(sithCog *pCog)
     params.timerIdx = sithCogExec_PopInt(pCog);
     params.idx = pCog->idx;
     cog_flex_t a1a = sithCogExec_PopFlex(pCog) * 1000.0;
-    int timerMs = (signed int)a1a;
+    int timerMs = (int)floorf(a1a);
     if ( timerMs >= 0 ) {
         sithEvent_CreateEvent(4, &params, timerMs);
     }
@@ -650,7 +650,7 @@ void sithCogFunction_BitClear(sithCog *pCog)
 
 void sithCogFunction_GetLevelTime(sithCog *pCog)
 {
-    sithCogExec_PushFlex(pCog, sithTime_g_msecGameTime * 0.001);
+    sithCogExec_PushFlex(pCog, (flex_d_t)sithTime_g_msecGameTime * (flex_d_t)0.001f);
 }
 
 void sithCogFunction_GetThingCount(sithCog *pCog)
@@ -821,7 +821,7 @@ void sithCogFunction_SetCameraFocus(sithCog *pCog)
 
 #ifdef QOL_IMPROVEMENTS
     // Droidworks tmp
-    if (camIdx == 7)
+    if (Main_bDwCompat && camIdx == 7)
         camIdx = 0;
 #endif
 
@@ -841,7 +841,7 @@ void sithCogFunction_GetPrimaryFocus(sithCog *pCog)
 
 #ifdef QOL_IMPROVEMENTS
     // Droidworks tmp
-    if (camIdx == 7)
+    if (Main_bDwCompat && camIdx == 7)
         camIdx = 0;
 #endif
 
@@ -860,7 +860,7 @@ void sithCogFunction_GetSecondaryFocus(sithCog *pCog)
     
 #ifdef QOL_IMPROVEMENTS
     // Droidworks tmp
-    if (camIdx == 7)
+    if (Main_bDwCompat && camIdx == 7)
         camIdx = 0;
 #endif
     
@@ -1502,7 +1502,7 @@ void sithCogFunction_SetTeamScore(sithCog *pCog)
 
 void sithCogFunction_GetTimeLimit(sithCog *pCog)
 {
-    cog_flex_t a2 = (flex_d_t)(unsigned int)sithNet_multiplayer_timelimit * 0.000016666667;
+    cog_flex_t a2 = (flex_d_t)(unsigned int)sithNet_multiplayer_timelimit * 0.000016666667f;
     sithCogExec_PushFlex(pCog, a2);
 }
 
