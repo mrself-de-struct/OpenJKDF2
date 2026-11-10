@@ -249,24 +249,45 @@ int jkRes_ReadKeyRawEarly()
     return jkRes_ReadKeyFromFile("resource/jk_.cd");
 }
 
-// Added: whether the game folder holds MotS's resources and not JK's (a folder copied
-// without its jk_.cd, e.g. a dedicated server's), before the file system is up.
-int jkRes_HasMotsResourcesEarly()
+// Added: whether pDir/resource/<pName> exists (any case), before the file system is up.
+static int jkRes_ResourceExistsEarly(const char* pDir, const char* pName)
 {
+    char path[512];
     stdFile_t fd;
 
     if (!pLowLevelHS || !pLowLevelHS->fileOpen) {
         pLowLevelHS = (HostServices *)&lowLevelHS;
         stdInitServices(&lowLevelHS);
     }
-    if ((fd = pLowLevelHS->fileOpen("resource/res2.gob", "rb"))) {
-        pLowLevelHS->fileClose(fd);
-        return 0;
-    }
-    if (!(fd = pLowLevelHS->fileOpen("resource/jkmres.goo", "rb")))
+    stdString_snprintf(path, sizeof(path), "%s%sresource/%s", pDir && pDir[0] ? pDir : "",
+                       pDir && pDir[0] && pDir[strlen(pDir) - 1] != '/' && pDir[strlen(pDir) - 1] != '\\' ? "/" : "", pName);
+    if (!(fd = pLowLevelHS->fileOpen(path, "rb")))
         return 0;
     pLowLevelHS->fileClose(fd);
     return 1;
+}
+
+// Added: which game's data folder pDir is ("" or NULL: the current folder), before the
+// file system is up: JKRES_GAME_DF2 if resource/ holds Res2.gob, JKRES_GAME_MOTS if it
+// holds JKMRES.GOO, else what resource/jk_.cd says; JKRES_GAME_NONE if none of them.
+// The game's own files decide, so a folder doesn't need a jk_.cd (or the right one).
+int jkRes_DetectGame(const char* pDir)
+{
+    char path[512];
+    int keyval;
+    int bDf2 = jkRes_ResourceExistsEarly(pDir, "res2.gob");
+    int bMots = jkRes_ResourceExistsEarly(pDir, "jkmres.goo");
+
+    if (bDf2 != bMots)
+        return bMots ? JKRES_GAME_MOTS : JKRES_GAME_DF2;
+    stdString_snprintf(path, sizeof(path), "%s%sresource/jk_.cd", pDir && pDir[0] ? pDir : "",
+                       pDir && pDir[0] && pDir[strlen(pDir) - 1] != '/' && pDir[strlen(pDir) - 1] != '\\' ? "/" : "");
+    keyval = jkRes_ReadKeyFromFile(path);
+    if (JKRES_IS_MOTS_MAGIC(keyval))
+        return JKRES_GAME_MOTS;
+    if (keyval || bDf2)
+        return JKRES_GAME_DF2;
+    return JKRES_GAME_NONE;
 }
 
 int jkRes_ReadKey()
@@ -432,6 +453,12 @@ int jkRes_LoadCD(int cdNumberNeeded)
 
             pHS->fileClose(v1);
         }
+
+#ifdef QOL_IMPROVEMENTS
+        // Altered: an installed game's folder needs no jk_.cd (or the right one): its files say which game it is
+        if ( !v23 && jkRes_DetectGame(NULL) == (Main_bMotsCompat ? JKRES_GAME_MOTS : JKRES_GAME_DF2) )
+            v23 = 1;
+#endif
 
 #ifdef TARGET_RETRO_HOMEBREW
         v23 = 1;

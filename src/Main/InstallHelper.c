@@ -36,7 +36,7 @@ const char* aRequiredAssets[] = {
     "episode/JK1MP.gob",
     "resource/Res1hi.gob",
     "resource/Res2.gob",
-    "resource/jk_.cd",
+    //"resource/jk_.cd", // Removed: the game's files tell it apart (jkRes_DetectGame)
 };
 
 const size_t aRequiredAssets_len = sizeof(aRequiredAssets) / sizeof(const char*);
@@ -48,7 +48,7 @@ const char* aRequiredAssetsMots[] = {
     "episode/JKM.goo",
     "resource/Jkmres.goo",
     "resource/JKMsndLO.goo",
-    "resource/jk_.cd",
+    //"resource/jk_.cd", // Removed: the game's files tell it apart (jkRes_DetectGame)
 };
 
 const size_t aRequiredAssetsMots_len = sizeof(aRequiredAssetsMots) / sizeof(const char*);
@@ -367,10 +367,8 @@ int InstallHelper_GetLocalDataDir(char* pOut, size_t pOut_sz, int bChdir)
         stdFnames_MakePath(fname, 256, data_home, INSTALL_APPDATA_FOLDER_NAME);
         
         // Check if data exists here. If it does not, we want to use the newer organization structure.
-        strncpy(fname_tmp, fname, sizeof(fname_tmp)-1);
-        strncat(fname_tmp, "/resource/jk_.cd", sizeof(fname_tmp)-1);
-
-        if(util_FileExists(fname_tmp)) {
+        // Altered: a game data folder by its files (jkRes_DetectGame), not only by resource/jk_.cd
+        if(jkRes_DetectGame(fname)) {
             stdFileUtil_MkDir(fname);
             if (bChdir) {
                 chdir(fname);
@@ -401,9 +399,8 @@ int InstallHelper_GetLocalDataDir(char* pOut, size_t pOut_sz, int bChdir)
             snprintf(fname, sizeof(fname), "%s/.local/share/%s", homedir, INSTALL_APPDATA_FOLDER_NAME);
 
             // If ~/.local/share/openjkdf2/resource/jk_.cd exists, use that directory as resource root
-            strncpy(fname_tmp, fname, sizeof(fname_tmp)-1);
-            strncat(fname_tmp, "/resource/jk_.cd", sizeof(fname_tmp)-1);
-            if(util_FileExists(fname_tmp)) {
+            // Altered: by its files (jkRes_DetectGame), not only by resource/jk_.cd
+            if(jkRes_DetectGame(fname)) {
                 stdFileUtil_MkDir(fname);
                 if (bChdir) {
                     chdir(fname);
@@ -448,11 +445,9 @@ int InstallHelper_GetLocalDataDir(char* pOut, size_t pOut_sz, int bChdir)
         strncat(fname, "\\", sizeof(fname)-1);
         strncat(fname, INSTALL_APPDATA_FOLDER_NAME, sizeof(fname)-1);
 
-        strncpy(fname_tmp, fname, sizeof(fname_tmp)-1);
-        strncat(fname_tmp, "\\resource\\jk_.cd", sizeof(fname_tmp)-1);
-
-        // If %appdata%/local/openjkdf2/resource/jk_.cd exists, use that directory as resource root
-        if(util_FileExists(fname_tmp)) {
+        // If %appdata%/local/openjkdf2 holds a game, use that directory as resource root
+        // Altered: by its files (jkRes_DetectGame), not only by resource/jk_.cd
+        if(jkRes_DetectGame(fname)) {
             stdFileUtil_MkDir(fname);
             if (bChdir) {
                 chdir(fname);
@@ -1291,10 +1286,9 @@ void InstallHelper_SetCwd()
     char data_home[256];
     found_override = InstallHelper_GetLocalDataDir(data_home, sizeof(data_home), 0);
 
-    stdFnames_MakePath(fname, 256, data_home, "resource/jk_.cd");
-
-    // If ~/.local/share/openjkdf2/resource/jk_cd exists, use that directory as resource root
-    if(openjkdf2_bSkipWorkingDirData || (util_FileExists(fname) && !util_FileExists("resource/jk_.cd"))) {
+    // If ~/.local/share/openjkdf2 holds a game and the working directory doesn't, use it as resource root
+    // Altered: by the game's files (jkRes_DetectGame), not only by resource/jk_.cd
+    if(openjkdf2_bSkipWorkingDirData || (jkRes_DetectGame(data_home) && !jkRes_DetectGame(NULL))) {
         InstallHelper_UseLocalData();
         found_override = 1;
     }
@@ -1315,17 +1309,8 @@ void InstallHelper_SetCwd()
     }
 
     // If we can tell that we're loading MoTS assets, enable Main_bMotsCompat
-    int keyval = jkRes_ReadKeyRawEarly();
-    // Added: also by its files, when there's no MotS key (no jk_.cd, or JK's)
-    int bMotsFiles = !JKRES_IS_MOTS_MAGIC(keyval) && jkRes_HasMotsResourcesEarly();
-    if (bMotsFiles && keyval) {
-        stdPlatform_Printf("OpenJKDF2: resource/jk_.cd is Jedi Knight's, but this folder holds Mysteries of the Sith "
-                           "(resource/JKMRES.GOO, no Res2.gob): put MotS's own jk_.cd in resource/\n");
-    }
-    else if (bMotsFiles) {
-        stdPlatform_Printf("OpenJKDF2: resource/JKMRES.GOO and no Res2.gob here: running Mysteries of the Sith\n");
-    }
-    if (JKRES_IS_MOTS_MAGIC(keyval) || bMotsFiles) {
+    // Altered: by the game's files (Res2.gob / JKMRES.GOO), jk_.cd only if they don't tell
+    if (jkRes_DetectGame(NULL) == JKRES_GAME_MOTS) {
         Main_bMotsCompat = 1;
         if (openjkdf2_bIsFirstLaunch) {
             openjkdf2_bOrigWasDF2 = 0;
@@ -1340,7 +1325,7 @@ void InstallHelper_SetCwd()
         //SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "OpenJKDF2 could not find any game assets (`resource/jk_.cd` is missing). Would you like to install assets now?", NULL);
         InstallHelper_AttemptInstall();
     }*/
-    if (!util_FileExists("resource/jk_.cd")) {
+    if (!jkRes_DetectGame(NULL)) { // Altered: was !util_FileExists("resource/jk_.cd")
         InstallHelper_CheckRequiredAssets(1);
     }
 

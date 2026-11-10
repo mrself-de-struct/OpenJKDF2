@@ -41,7 +41,11 @@ int jkRes_FileExists(const char *fpath, char *a2, int len);
 int jkRes_ReadKeyFromFile(const char* fpath); // Added
 int jkRes_ReadKeyRaw(); // Added
 int jkRes_ReadKeyRawEarly(); // Added
-int jkRes_HasMotsResourcesEarly(); // Added
+// Added: which game a data folder holds (jkRes_DetectGame), by its files, else its jk_.cd
+#define JKRES_GAME_NONE 0
+#define JKRES_GAME_DF2  1
+#define JKRES_GAME_MOTS 2
+int jkRes_DetectGame(const char* pDir); // Added
 int jkRes_ReadKey();
 int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3);
 int jkRes_NewGob(jkResGobDirectory *gobFullpath, char *gobFolder, char *gobFname);

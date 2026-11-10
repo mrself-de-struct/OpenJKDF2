@@ -281,7 +281,6 @@ void jkGuiMods_AddEntry(Darray *pListDisplayed, int type, const char* paVal, con
 void jkGuiMods_PopulateEntries(Darray *pListDisplayed, jkGuiElement *element)
 {
     char tmpCwd[512];
-    char tmpKeyPath[512];
 
 #if !defined(ARCH_WASM) && !defined(TARGET_ANDROID) && !defined(TARGET_RETRO_HOMEBREW)
     Main_bMotsCompat = !Main_bMotsCompat;
@@ -299,12 +298,12 @@ void jkGuiMods_PopulateEntries(Darray *pListDisplayed, jkGuiElement *element)
 #endif
 
     
-    stdFnames_MakePath(tmpKeyPath, 256, tmpCwd, "resource/jk_.cd");
-    int keyval = jkRes_ReadKeyFromFile(tmpKeyPath);
+    // Altered: the other game's folder by its files (jkRes_DetectGame), not only by its jk_.cd
+    int otherGame = jkRes_DetectGame(tmpCwd);
 
     if (!Main_bMotsCompat)
     {
-        if (!(!openjkdf2_bOrigWasDF2 && openjkdf2_bOrigWasRunningFromExistingInstall) && (keyval == 0 || !JKRES_IS_MOTS_MAGIC(keyval))) {
+        if (!(!openjkdf2_bOrigWasDF2 && openjkdf2_bOrigWasRunningFromExistingInstall) && (otherGame != JKRES_GAME_MOTS)) {
             jkGuiMods_AddEntry(pListDisplayed, JKGUIMODS_TYPE_RESTART, "OPENJKDF2_RESTART_MOTS", "Install Mysteries of the Sith");
         }
         else {
@@ -318,7 +317,7 @@ void jkGuiMods_PopulateEntries(Darray *pListDisplayed, jkGuiElement *element)
     
     if (Main_bMotsCompat)
     {
-        if (!(openjkdf2_bOrigWasDF2 && openjkdf2_bOrigWasRunningFromExistingInstall) && (keyval == 0 || !JKRES_IS_DF2_MAGIC(keyval))) {
+        if (!(openjkdf2_bOrigWasDF2 && openjkdf2_bOrigWasRunningFromExistingInstall) && (otherGame != JKRES_GAME_DF2)) {
             jkGuiMods_AddEntry(pListDisplayed, JKGUIMODS_TYPE_RESTART, "OPENJKDF2_RESTART_DF2", "Install Dark Forces II");
         }
         else {
