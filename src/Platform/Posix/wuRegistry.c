@@ -11,7 +11,7 @@ static const char* wuRegistry_aServerKeys[] = {
     // the host screen's (jkGuiNetHost_SaveSettings) and the game being hosted
     "gameName", "serverPassword", "serverEpisodeGob", "serverMapJkl", "maxPlayers", "maxRank",
     "sessionFlags", "gameFlags", "timeLimit", "scoreLimit", "tickRate", "portNum", "bIsDedicated",
-    "bIsCoop", "bIsEpisodeCoop", "bUseScoreLimit", "bUseTimeLimit", "bIsSingleLevel", "bIsTeams",
+    "bIsCoop", "bIsEpisodeCoop", "bUseScoreLimit", "bUseTimeLimit", "bIsSingleLevel", "bIsTeams", "bJediOnly",
     // where it hosts (Main_StartupDedicated; the command line wins)
     "connection", "relayServer", "webLobbyUrl", "port", "wsPort", "master", "maps", "shuffleMaps",
     // admin (Main/jkServer.c)

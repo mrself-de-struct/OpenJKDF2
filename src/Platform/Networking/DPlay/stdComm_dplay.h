@@ -69,11 +69,11 @@ int stdComm_DPlay_AutoJoinPicks(void);      // waiting for one game (else the pl
 // listed and the menus should go on to join (auto-join above) with character pCharacter
 // (force level charRank); pMsg says what happened.
 int stdComm_DPlay_Connect(const char* pAddress, const char* pPassword, const char* pCharacter, int charRank,
-                          char* pMsg, int msgLen);
+                          int charPersonality, char* pMsg, int msgLen);
 
 // Added: console "reconnect": the last Imperial Network Protocol game joined, again
 // (same game, or the server's only one or the one with the same name), with pCharacter.
-int stdComm_DPlay_Reconnect(const char* pCharacter, int charRank, int bAsked, char* pMsg, int msgLen);
+int stdComm_DPlay_Reconnect(const char* pCharacter, int charRank, int charPersonality, int bAsked, char* pMsg, int msgLen);
 
 // Added: the map in the game's description (a dedicated host's map rotation, jkMain.c).
 void stdComm_DPlay_SetSessionMap(const char* pGob, const char* pJklFname);
@@ -81,6 +81,9 @@ int stdComm_DPlay_GetSessionNextMap(char* pGob, int gobLen, char* pOut, int outL
 
 // Added: the force level limit of the game we're in (console "character"), -1 if none.
 int stdComm_DPlay_GameMaxRank(void);
+// Added: MotS personalities: whether a character fits the game we're in; the game's kind.
+int stdComm_DPlay_CharAllowedHere(const char* pCharacter, int charRank, int charPersonality, char* pMsg, int msgLen);
+int stdComm_DPlay_GameJediOnly(void);
 int stdComm_DPlay_SetMaxRank(int rank); // Added: server "rank"
 int stdComm_DPlay_TakeLeaveMessage(uint16_t* pOut, int outLen);
 int stdComm_DPlay_RejoinAsked(void);     // Added: the server asked everyone to reconnect

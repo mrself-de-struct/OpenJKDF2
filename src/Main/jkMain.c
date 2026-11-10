@@ -1156,7 +1156,7 @@ int jkMain_FindLevel(const char* pSpec, const char* pPrefer, char* pOut, size_t 
     if ( pColon )
     {
         stdString_SafeStrCopy(aGob, pSpec, (size_t)(pColon - pSpec) + 1 < sizeof(aGob) ? (size_t)(pColon - pSpec) + 1 : sizeof(aGob));
-        if ( (pExt = strrchr(aGob, '.')) && !__strcmpi(pExt, ".gob") ) *pExt = 0;
+        if ( (pExt = strrchr(aGob, '.')) && (!__strcmpi(pExt, ".gob") || !__strcmpi(pExt, ".goo")) ) *pExt = 0;
         pSpec = pColon + 1;
     }
     stdString_SafeStrCopy(aJkl, pSpec, sizeof(aJkl) - 4);
@@ -1179,7 +1179,7 @@ int jkMain_FindLevel(const char* pSpec, const char* pPrefer, char* pOut, size_t 
         stdString_snprintf(pOut, outLen, "%s:%s", jkRes_episodeGobName, aJkl); // also a folder episode
         return 1;
     }
-    if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+    if ( !(pSearch = stdFileUtil_NewFind("episode", 3, JKRES_GOB_EXT)) )
         return 0;
     // The ones to try first, then (without a GOB given) all of them.
     for ( int pass = 0; pass < 2; pass++ )
@@ -1189,7 +1189,7 @@ int jkMain_FindLevel(const char* pSpec, const char* pPrefer, char* pOut, size_t 
             if ( aGob[0] )
                 break;
             stdFileUtil_DisposeFind(pSearch);
-            if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+            if ( !(pSearch = stdFileUtil_NewFind("episode", 3, JKRES_GOB_EXT)) )
                 return 0;
         }
         while ( stdFileUtil_FindNext(pSearch, &res) )

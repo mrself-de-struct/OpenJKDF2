@@ -111,7 +111,7 @@ flex_t jkPlayer_CalcAlignment(int isMp);
 void jkPlayer_MpcInitBins(SithPlayer* unk);
 int jkPlayer_MPCParse(jkPlayerMpcInfo *info, SithPlayer* unk, char16_t *fname, char16_t *name, int hasBins);
 int jkPlayer_MPCWrite(SithPlayer* unk, char16_t *mpcName, char16_t *playerName);
-int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModelOut, int modelLen, int* pRankOut); // Added
+int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModelOut, int modelLen, int* pRankOut, int* pPersonalityOut); // Added
 int jkPlayer_MPCBinWrite();
 int jkPlayer_MPCBinRead();
 void jkPlayer_InitForceBins();

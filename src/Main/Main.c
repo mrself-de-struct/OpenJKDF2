@@ -190,8 +190,9 @@ int Main_StartupDedicated(int bFullyDedicated)
     char* pRemoveExt;
     int bExplicitMap = 1;
     char aTmpPlayerShortName[32];
-    const char* defaultEpisode = Main_bMotsCompat ? "" : "JK1MP";
-    const char* defaultMap = Main_bMotsCompat ? "" : "m2.jkl";
+    // Altered: MotS's first deathmatch level (was none, so a MotS server without -map didn't start)
+    const char* defaultEpisode = Main_bMotsCompat ? "JKM_MP" : "JK1MP";
+    const char* defaultMap = Main_bMotsCompat ? "mdm02_freezer.jkl" : "m2.jkl";
 
     jkSmack_stopTick = 1;
     jkSmack_nextGuiState = JK_GAMEMODE_TITLE;
@@ -368,6 +369,13 @@ int Main_StartupDedicated(int bFullyDedicated)
         stdString_snprintf(aLimits + n, sizeof(aLimits) - n, "%s%s", n ? ", " : "",
                            (v34.multiModeFlags & MULTIMODEFLAG_SINGLE_LEVEL) ? "this level over and over" : "the episode's levels in turn");
         stdLog_Printf("server", "%s", aLimits);
+        if (Main_bMotsCompat)
+        {
+            if (v34.multiModeFlags & MULTIMODEFLAG_1000)
+                stdLog_Printf("server", "MotS game: Jedi only, force rank up to %d (server.json \"bJediOnly\")", v34.maxRank);
+            else
+                stdLog_Printf("server", "MotS game: personalities (server.json \"bJediOnly\": true for Jedi only)");
+        }
         if ((v34.multiModeFlags & MULTIMODEFLAG_TIMELIMIT) && v34.timeLimit < 60000)
             stdLog_Printf("server", "\"timeLimit\" is in milliseconds: %d is %.1f s (30 minutes is 1800000)",
                           v34.timeLimit, v34.timeLimit / 1000.0);

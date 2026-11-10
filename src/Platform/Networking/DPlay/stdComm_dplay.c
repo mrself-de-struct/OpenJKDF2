@@ -553,13 +553,49 @@ static int DPlay_ProbeGames(const char* server, dps_session* pOut, int max, char
     return n > 0 ? (n < max ? n : max) : 0;
 }
 
-static int DPlay_RankAllowed(const dps_session* s, const char* pCharacter, int charRank, char* pMsg, int msgLen)
+// Whether a character may join game s, as the character screen lists them
+// (jkGuiBuildMulti_Show2): in JK up to the game's force rank; in MotS a "Jedi only" game
+// (MULTIMODEFLAG_1000) takes Jedi (personality 1) up to its rank, a personalities game
+// the characters made for it (force rank 7). 0 with pMsg set if not.
+static int DPlay_CharAllowed(const dps_session* s, const char* pCharacter, int charRank, int charPersonality,
+                             char* pMsg, int msgLen)
 {
     int maxRank = (int)(s->user[2] >> 16);
+    if (Main_bMotsCompat && !(s->user[1] & MULTIMODEFLAG_1000))
+    {
+        if (charRank == 7) return 1;
+        snprintf(pMsg, msgLen, "%s isn't a personalities character; that game uses personalities. Pick another with \"character\".",
+                 pCharacter);
+        return 0;
+    }
+    if (Main_bMotsCompat && charPersonality != 1)
+    {
+        snprintf(pMsg, msgLen, "%s is a personalities character; that game is Jedi only. Pick another with \"character\".",
+                 pCharacter);
+        return 0;
+    }
     if (charRank <= maxRank) return 1;
     snprintf(pMsg, msgLen, "%s is force level %d; that game allows up to %d. Pick another with \"character\".",
              pCharacter, charRank, maxRank);
     return 0;
+}
+
+// Added: whether a character fits the game we're in (console "character"). 1 if not in a game.
+int stdComm_DPlay_CharAllowedHere(const char* pCharacter, int charRank, int charPersonality, char* pMsg, int msgLen)
+{
+    dps_session s;
+    if (!sithNet_isMulti || !stdComm_dword_8321DC || FAILED(dps_GetSessionDesc(&s)))
+        return 1;
+    return DPlay_CharAllowed(&s, pCharacter, charRank, charPersonality, pMsg, msgLen);
+}
+
+// Added: "Jedi only" (1) or personalities (0) for the MotS game we're in, -1 if none or JK.
+int stdComm_DPlay_GameJediOnly(void)
+{
+    dps_session s;
+    if (!Main_bMotsCompat || !sithNet_isMulti || !stdComm_dword_8321DC || FAILED(dps_GetSessionDesc(&s)))
+        return -1;
+    return (s.user[1] & MULTIMODEFLAG_1000) ? 1 : 0;
 }
 
 // Added: console "connect <host[:port]> [password]": asks the server for its games and,
@@ -567,7 +603,7 @@ static int DPlay_RankAllowed(const dps_session* s, const char* pCharacter, int c
 // the character picked with the console's "character" (pCharacter, its force level
 // charRank). Port JKR_DEFAULT_SERVER_PORT (a dedicated server's own) if none given.
 int stdComm_DPlay_Connect(const char* pAddress, const char* pPassword, const char* pCharacter, int charRank,
-                          char* pMsg, int msgLen)
+                          int charPersonality, char* pMsg, int msgLen)
 {
     char server[256], name[64];
     char16_t password[32] = { 0 };
@@ -588,7 +624,7 @@ int stdComm_DPlay_Connect(const char* pAddress, const char* pPassword, const cha
 
     n = DPlay_ProbeGames(server, games, DPLAY_MAX_SESSIONS, pMsg, msgLen);
     if (!n) return 0;
-    if (n == 1 && !DPlay_RankAllowed(&games[0], pCharacter, charRank, pMsg, msgLen))
+    if (n == 1 && !DPlay_CharAllowed(&games[0], pCharacter, charRank, charPersonality, pMsg, msgLen))
         return 0;
     for (int i = 0; pPassword && i < 31 && pPassword[i]; i++) password[i] = (uint8_t)pPassword[i];
     DPlay_StartAutoJoin(idx, server, password, pCharacter, n == 1 ? &games[0] : NULL);
@@ -608,7 +644,7 @@ int stdComm_DPlay_Connect(const char* pAddress, const char* pPassword, const cha
 // else the server's only game or the one with the same name (a restarted server's
 // game is a new one). bAsked: the server asked us to (reconnectall): a character above
 // the game's force rank limit, or none, means the character screen instead of refusing.
-int stdComm_DPlay_Reconnect(const char* pCharacter, int charRank, int bAsked, char* pMsg, int msgLen)
+int stdComm_DPlay_Reconnect(const char* pCharacter, int charRank, int charPersonality, int bAsked, char* pMsg, int msgLen)
 {
     dps_session games[DPLAY_MAX_SESSIONS];
     const dps_session* pick = NULL;
@@ -650,15 +686,18 @@ int stdComm_DPlay_Reconnect(const char* pCharacter, int charRank, int bAsked, ch
         return 0;
     }
     DPlay_GameNameOf(pick->name, name, sizeof(name));
-    if (bAsked && (!pCharacter || !pCharacter[0] || charRank > (int)(pick->user[2] >> 16)))
+    if (bAsked && (!pCharacter || !pCharacter[0] || !DPlay_CharAllowed(pick, pCharacter, charRank, charPersonality, pMsg, msgLen)))
     {
         DPlay_StartAutoJoin(idx, DPlay_lastServer, DPlay_lastPassword, NULL, pick); // the character screen
-        snprintf(pMsg, msgLen, "Joining \"%s\" on %s again: pick a character (force rank up to %d).", name,
-                 DPlay_lastServer, (int)(pick->user[2] >> 16));
+        if (Main_bMotsCompat && !(pick->user[1] & MULTIMODEFLAG_1000))
+            snprintf(pMsg, msgLen, "Joining \"%s\" on %s again: pick a personalities character.", name, DPlay_lastServer);
+        else
+            snprintf(pMsg, msgLen, "Joining \"%s\" on %s again: pick a character (force rank up to %d).", name,
+                     DPlay_lastServer, (int)(pick->user[2] >> 16));
         stdLog_Printf("net", "reconnect %s (asked)", DPlay_lastServer);
         return 1;
     }
-    if (!DPlay_RankAllowed(pick, pCharacter, charRank, pMsg, msgLen))
+    if (!DPlay_CharAllowed(pick, pCharacter, charRank, charPersonality, pMsg, msgLen))
         return 0;
     DPlay_StartAutoJoin(idx, DPlay_lastServer, DPlay_lastPassword, pCharacter, pick);
     snprintf(pMsg, msgLen, "Joining \"%s\" on %s as %s again...", name, DPlay_lastServer, pCharacter);

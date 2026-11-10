@@ -255,11 +255,24 @@ void jkGuiNetHost_SaveSettings()
     wuRegistry_SaveBool("bUseTimeLimit", jkGuiNetHost_gameFlags & MULTIMODEFLAG_TIMELIMIT);
     wuRegistry_SaveBool("bIsSingleLevel", jkGuiNetHost_gameFlags & MULTIMODEFLAG_SINGLE_LEVEL);
     wuRegistry_SaveBool("bIsTeams", jkGuiNetHost_gameFlags & MULTIMODEFLAG_TEAMS);
+    // Added: MotS's "Jedi only" (else personalities), readable in server.json
+    if (Main_bMotsCompat)
+        wuRegistry_SaveBool("bJediOnly", jkGuiNetHost_gameFlags & MULTIMODEFLAG_1000);
 #endif
 }
 
 void jkGuiNetHost_LoadSettings()
 {
+#ifdef QOL_IMPROVEMENTS
+    // Added: MotS's "Jedi only" (else personalities)
+    if (Main_bMotsCompat) {
+        if (wuRegistry_GetBool("bJediOnly", jkGuiNetHost_gameFlags & MULTIMODEFLAG_1000))
+            jkGuiNetHost_gameFlags |= MULTIMODEFLAG_1000;
+        else
+            jkGuiNetHost_gameFlags &= ~MULTIMODEFLAG_1000;
+    }
+#endif
+
     jkGuiNetHost_maxRank = wuRegistry_GetInt("maxRank", jkGuiNetHost_maxRank);
     jkGuiNetHost_sessionFlags = wuRegistry_GetInt("sessionFlags", jkGuiNetHost_sessionFlags);
     jkGuiNetHost_gameFlags = wuRegistry_GetInt("gameFlags", jkGuiNetHost_gameFlags);

@@ -160,7 +160,14 @@ static int jkServer_CmdStatus(stdDebugConsoleCmd* pCmd, const char* pArgStr)
         char aRank[64];
         int rank = stdComm_DPlay_GameMaxRank();
         jkServer_RankName(rank, aRank, sizeof(aRank));
-        jkServer_Print("Force rank: up to %d (%s)", rank, aRank);
+        if ( stdComm_DPlay_GameJediOnly() == 0 )
+            jkServer_Print("MotS game: personalities (force rank limit %d applies only to Jedi only games)", rank);
+        else
+        {
+            if ( stdComm_DPlay_GameJediOnly() == 1 )
+                sithConsole_PrintString("MotS game: Jedi only");
+            jkServer_Print("Force rank: up to %d (%s)", rank, aRank);
+        }
     }
     if ( jkMain_GetForcedNextMap() )
         jkServer_Print("Next map: %s", jkMain_GetForcedNextMap());
@@ -471,13 +478,13 @@ static int jkServer_CmdMapList(stdDebugConsoleCmd* pCmd, const char* pArgStr)
 
     jkServer_Trim(pArgStr, aFilter, sizeof(aFilter));
     // Added: is the text a GOB's name? Then that GOB alone.
-    if ( aFilter[0] && (pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+    if ( aFilter[0] && (pSearch = stdFileUtil_NewFind("episode", 3, JKRES_GOB_EXT)) )
     {
         while ( !bGobOnly && stdFileUtil_FindNext(pSearch, &res) )
             bGobOnly = !res.is_subdirectory && res.fpath[0] != '.' && jkServer_IsGobNamed(res.fpath, aFilter);
         stdFileUtil_DisposeFind(pSearch);
     }
-    if ( !(pSearch = stdFileUtil_NewFind("episode", 3, "gob")) )
+    if ( !(pSearch = stdFileUtil_NewFind("episode", 3, JKRES_GOB_EXT)) )
         return 1;
     while ( stdFileUtil_FindNext(pSearch, &res) )
     {

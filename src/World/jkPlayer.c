@@ -1580,14 +1580,15 @@ int jkPlayer_MPCParse(jkPlayerMpcInfo *info, SithPlayer* unk, char16_t *fname, c
 // "connect", without loading it (jkPlayer_MPCParse sets the local player's force
 // powers and model, which mid-game would change the player in the game).
 // pMpcName is the file name without ".mpc". 0 if it can't be read.
-int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModelOut, int modelLen, int* pRankOut)
+int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModelOut, int modelLen, int* pRankOut, int* pPersonalityOut)
 {
     char fpath[128];
-    int bScrambled = 0, bin, key = 0;
+    int bScrambled = 0, bin, key = 0, personality;
     flex32_t value;
 
     pModelOut[0] = 0;
     *pRankOut = 0;
+    if (pPersonalityOut) *pPersonalityOut = 1; // a JK character (no personality line) is a Jedi
     stdString_snprintf(fpath, sizeof(fpath), "player\\%s\\%s.mpc", pPlayerName, pMpcName);
     if (!stdConffile_OpenReadBypass(fpath))
         return 0;
@@ -1612,6 +1613,8 @@ int jkPlayer_MPCPeek(const char* pPlayerName, const char* pMpcName, char* pModel
     {
         if (bScrambled) key = stdConffile_GetMotsScrambleKey();
         if (!stdConffile_ReadLine()) break;
+        if ( pPersonalityOut && _sscanf(stdConffile_g_aLine, "personality: %d", &personality) == 1 )
+            *pPersonalityOut = personality;
         if ( _sscanf(stdConffile_g_aLine, "bin: %d value: %f", &bin, &value) == 2
           && (bScrambled ? (bin ^ key) : bin) == SITHBIN_JEDI_RANK )
         {

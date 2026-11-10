@@ -155,6 +155,17 @@ int sithCommand_CmdGameInfo(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     stdString_snprintf(std_g_genBuffer, 512, "You are the %s, %d player%s, tick rate %d msec",
                        sithNet_isServer ? "host" : "joiner", numPlayers, numPlayers == 1 ? "" : "s", sithNet_tickrate);
     sithConsole_PrintString(std_g_genBuffer);
+#ifdef PLATFORM_DPLAY
+    // Added: MotS's kind of game
+    if ( stdComm_DPlay_GameJediOnly() >= 0 )
+    {
+        if ( stdComm_DPlay_GameJediOnly() )
+            stdString_snprintf(std_g_genBuffer, 512, "MotS game: Jedi only, force rank up to %d", stdComm_DPlay_GameMaxRank());
+        else
+            stdString_snprintf(std_g_genBuffer, 512, "MotS game: personalities");
+        sithConsole_PrintString(std_g_genBuffer);
+    }
+#endif
     // Added: the game's limits. Joiners only learn whether they're on (mode flags); the values stay on the host.
     if ( !(sithNet_MultiModeFlags & MULTIMODEFLAG_TIMELIMIT) )
         stdString_snprintf(std_g_genBuffer, 512, "Time limit: none");
@@ -203,6 +214,7 @@ typedef struct sithCommandChar
     char name[32];       // the .mpc file name without ".mpc", as the character screen lists it
     char model[32];      // e.g. "ky.3do"
     int  rank;           // force level
+    int  personality;    // MotS: 1 Jedi, 2.. the other personalities
     int  bReadable;
 } sithCommandChar;
 
@@ -236,7 +248,7 @@ static int sithCommand_ListChars(sithCommandChar* pOut, int max)
         sithCommandChar* c = &pOut[n++];
         stdString_SafeStrCopy(c->name, result.fpath, sizeof(c->name));
         stdFnames_StripExtAndDot(c->name);
-        c->bReadable = jkPlayer_MPCPeek(player, c->name, c->model, sizeof(c->model), &c->rank);
+        c->bReadable = jkPlayer_MPCPeek(player, c->name, c->model, sizeof(c->model), &c->rank, &c->personality);
     }
     stdFileUtil_DisposeFind(pSearch);
     return n;
@@ -257,6 +269,27 @@ static void sithCommand_ModelName(const char* pModel, char* pOut, int outLen)
     }
     else
         stdString_SafeStrCopy(pOut, pModel, outLen);
+}
+
+// MotS: ", <personality>" as the character screen names it (GUI_PERSONALITY<n>); "" in JK.
+static void sithCommand_PersonalityName(int personality, char* pOut, int outLen)
+{
+    char key[32];
+    const char16_t* pName;
+    char aName[48];
+    pOut[0] = 0;
+    if ( !Main_bMotsCompat )
+        return;
+    stdString_snprintf(key, sizeof(key), "GUI_PERSONALITY%d", personality);
+    pName = jkStrings_GetUniString(key);
+    if ( pName && pName[0] )
+    {
+        stdString_WcharToChar(aName, pName, sizeof(aName) - 1);
+        aName[sizeof(aName) - 1] = 0;
+    }
+    else
+        stdString_snprintf(aName, sizeof(aName), "personality %d", personality);
+    stdString_snprintf(pOut, outLen, ", %s", aName);
 }
 
 // A name or list number as typed: surrounding spaces and quotes go.
@@ -303,9 +336,11 @@ int sithCommand_CmdCharacters(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     {
         if ( chars[i].bReadable )
         {
+            char personality[64];
             sithCommand_ModelName(chars[i].model, model, sizeof(model));
-            stdString_snprintf(std_g_genBuffer, 512, "%2d  %-20s %-16s force level %d%s", i + 1, chars[i].name, model,
-                               chars[i].rank, i == sel ? "  (selected)" : "");
+            sithCommand_PersonalityName(chars[i].personality, personality, sizeof(personality));
+            stdString_snprintf(std_g_genBuffer, 512, "%2d  %-20s %-16s force level %d%s%s", i + 1, chars[i].name, model,
+                               chars[i].rank, personality, i == sel ? "  (selected)" : "");
         }
         else
             stdString_snprintf(std_g_genBuffer, 512, "%2d  %-20s (can't be read)", i + 1, chars[i].name);
@@ -320,7 +355,7 @@ int sithCommand_CmdCharacter(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     sithCommandChar chars[SITHCOMMAND_MAX_CHARS];
     int n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
     char arg[64], model[64];
-    int idx = -1, maxRank;
+    int idx = -1;
 
     if ( n < 0 )
         return 1;
@@ -354,11 +389,10 @@ int sithCommand_CmdCharacter(stdDebugConsoleCmd *pCmd, const char *pArgStr)
         sithConsole_PrintString(std_g_genBuffer);
         return 1;
     }
-    // Not above the force level of the game we're in (connect checks the server's).
-    maxRank = stdComm_DPlay_GameMaxRank();
-    if ( maxRank >= 0 && chars[idx].rank > maxRank )
+    // One the game we're in takes (connect checks the server's): its force level, and in
+    // MotS "Jedi only" or personalities, as the character screen lists them.
+    if ( !stdComm_DPlay_CharAllowedHere(chars[idx].name, chars[idx].rank, chars[idx].personality, std_g_genBuffer, 512) )
     {
-        stdString_snprintf(std_g_genBuffer, 512, "%s is force level %d; this game allows up to %d.", chars[idx].name, chars[idx].rank, maxRank);
         sithConsole_PrintString(std_g_genBuffer);
         return 1;
     }
@@ -533,7 +567,7 @@ int sithCommand_CmdReconnect(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     sel = sithCommand_JoinChar(chars, n);
     if ( sel < 0 )
         return 1;
-    if ( !stdComm_DPlay_Reconnect(chars[sel].name, chars[sel].rank, 0, msg, sizeof(msg)) )
+    if ( !stdComm_DPlay_Reconnect(chars[sel].name, chars[sel].rank, chars[sel].personality, 0, msg, sizeof(msg)) )
     {
         sithConsole_PrintString(msg);
         return 1;
@@ -553,7 +587,7 @@ void sithCommand_RejoinAsked(void)
     char msg[256];
     int n = sithCommand_ListChars(chars, SITHCOMMAND_MAX_CHARS);
     int sel = n > 0 ? sithCommand_SelectedChar(chars, n) : -1;
-    if ( !stdComm_DPlay_Reconnect(sel >= 0 ? chars[sel].name : "", sel >= 0 ? chars[sel].rank : 0, 1, msg, sizeof(msg)) )
+    if ( !stdComm_DPlay_Reconnect(sel >= 0 ? chars[sel].name : "", sel >= 0 ? chars[sel].rank : 0, sel >= 0 ? chars[sel].personality : 1, 1, msg, sizeof(msg)) )
         stdLog_Printf("net", "reconnect: %s", msg);
     sithConsole_PrintString(msg);
 }
@@ -592,7 +626,7 @@ int sithCommand_CmdConnect(stdDebugConsoleCmd *pCmd, const char *pArgStr)
     if ( sel < 0 )
         return 1;
 
-    if ( !stdComm_DPlay_Connect(pAddress, pPassword, chars[sel].name, chars[sel].rank, msg, sizeof(msg)) )
+    if ( !stdComm_DPlay_Connect(pAddress, pPassword, chars[sel].name, chars[sel].rank, chars[sel].personality, msg, sizeof(msg)) )
     {
         sithConsole_PrintString(msg);
         return 1;
