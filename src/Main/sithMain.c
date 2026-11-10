@@ -59,6 +59,11 @@ flex_t sithMain_lastAspect = 1.0;
 // carry to the next step, so the steps add up to the time that passed.
 static double sithMain_physStepMsecCarry = 0.0;
 
+// The game time of the next fixed physics step, carried from step to step, so the
+// steps' times are evenly spaced (cog pulses and timers fire on the steps they're due).
+static int sithMain_bStepClock = 0;
+static uint32_t sithMain_stepClockMs = 0;
+
 static int sithMain_PhysStepMsec(void)
 {
     int msec;
@@ -356,7 +361,16 @@ int sithUpdate()
             flex_t tmp4 = stdControl_updateKHz;
             flex_t tmp5 = stdControl_updateHz;
             uint32_t tmp6 = sithTime_g_msecGameTime;
-            sithTime_g_msecGameTime -= sithTime_g_frameTime;
+            // Altered: the steps' game time continues from the last step (was this frame's
+            // start, so steps were 14..28 ms apart at 144 fps and a 20 ms pulse skipped some).
+            // Back to the frame's start after a jump (level load, pause).
+            {
+                int32_t drift = (int32_t)(sithMain_stepClockMs - (tmp6 - tmp2));
+                if (!sithMain_bStepClock || drift > 100 || drift < -100)
+                    sithMain_stepClockMs = tmp6 - tmp2;
+                sithMain_bStepClock = 1;
+            }
+            sithTime_g_msecGameTime = sithMain_stepClockMs;
             sithTime_g_frameTimeFlex = DELTA_PHYSTICK_FPS;
             sithTime_g_frameTime = (int)(DELTA_PHYSTICK_FPS * 1000.0);
             sithTime_g_fps = 1.0 / sithTime_g_frameTimeFlex;
@@ -406,6 +420,7 @@ int sithUpdate()
                 sithTime_g_msecGameTime += sithTime_g_frameTime;
             }
 
+            sithMain_stepClockMs = sithTime_g_msecGameTime; // Added: where the next step starts
             sithTime_g_frameTimeFlex = tmp;
             sithTime_g_frameTime = tmp2;
             sithTime_g_fps = tmp3;
