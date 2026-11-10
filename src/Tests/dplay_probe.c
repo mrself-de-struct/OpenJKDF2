@@ -263,6 +263,24 @@ have_session:
         uint64_t t0 = jkx_TestNowMs(), lastShow = 0;
         int st;
         dps_RelaySetBigHandler(probe_BigFrame);
+        // PROBE_DECLINE=1: as a player who answers No to the download, leaves, and joins
+        // the same game again (the join screen does dps_Close, then dps_OpenJoin)
+        if (getenv("PROBE_DECLINE") && !strcmp(argv[1], "join"))
+        {
+            int st0;
+            jkx_SetAskFirst(1);
+            jkx_StartMap(getenv("PROBE_DOWNLOAD"), "gob");
+            while ((st0 = jkx_Tick()) == JKX_BUSY && !g_stop) { usleep(2000); }
+            if (st0 == JKX_ASK) { jkx_Answer(0); st0 = jkx_Tick(); }
+            printf("first try: %s (%s)\n", st0 == JKX_FAILED ? "failed" : st0 == JKX_READY ? "ready" : "?", jkx_Reason() ? jkx_Reason() : "");
+            dps_Close();
+            {
+                uint16_t pw[DPS_PASSWORD_MAX] = { 0 };
+                long hr2 = dps_OpenJoin(g_sessions[idx].guidInstance, pw);
+                printf("joined again: hr %08lx, host system id %08x\n", (unsigned long)hr2, dps_RelayHostSystemId());
+            }
+            dps_RelaySetBigHandler(probe_BigFrame);
+        }
         jkx_SetAskFirst(0);
         jkx_StartMap(getenv("PROBE_DOWNLOAD"), "gob");
         while ((st = jkx_Tick()) == JKX_BUSY && !g_stop)

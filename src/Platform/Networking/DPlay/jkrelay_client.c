@@ -595,7 +595,11 @@ static void jkr_ResetSession(void)
 {
     R.inSession = R.isHost = R.lostSignalled = 0;
     R.localSysId = 0;
-    R.lastEvent = 0;
+    // Altered (2026-11-09): R.lastEvent is kept. The server numbers its events per client,
+    // from its first packet on, and goes on counting across games; resetting here made a
+    // client that left a game (e.g. said No to a download) and joined again drop every
+    // event (waiting for number 1), so it never saw the host's players ("host left").
+    // It starts over only with a new client on the server (the WELCOME below).
     R.initialSeen = 0;
     memset(&R.desc, 0, sizeof(R.desc));
     memset(R.players, 0, sizeof(R.players));
@@ -925,10 +929,11 @@ static void jkr_HandlePacket(const uint8_t* p, int len)
         case JKR_EVENT:
         {
             uint8_t ack[JKR_HDR_SIZE];
-            if (R.inSession && seq == R.lastEvent + 1)
+            if (seq == R.lastEvent + 1)
             {
                 R.lastEvent = seq;
-                jkr_HandleEvent(b, end);
+                if (R.inSession)   // Altered: one from a game we've left is counted, not used
+                    jkr_HandleEvent(b, end);
             }
             jkr_PutHdr(ack, JKR_ACK, R.lastEvent);   // also re-acks duplicates
             jkr_SendRaw(ack, sizeof(ack));
@@ -1074,6 +1079,7 @@ static int jkr_Hello(int timeoutMs)
     t = jkr_Request(JKR_HELLO, body, sizeof(body), timeoutMs);
     if (t != JKR_WELCOME || R.replyLen < JKR_HDR_SIZE + 4) return 0;
     R.token = rd32(R.reply + JKR_HDR_SIZE);
+    R.lastEvent = 0;   // Added: a new client to the server, whose events start over (see jkr_ResetSession)
     R.lastRxMs = jkr_NowMs();
     jkr_Log(0, "connected to relay server %s\n", R.server);
     return 1;
