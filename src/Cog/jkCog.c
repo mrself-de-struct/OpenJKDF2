@@ -1039,9 +1039,8 @@ void jkCog_GetFirstBubble(sithCog *ctx)
 // MOTS added
 void jkCog_GetNextBubble(sithCog *ctx)
 {
-    for (int i = jkCog_bubbleIdx; i < 64; i++) {
-        if (jkPlayer_aBubbleInfo[i].pThing) break;
-        jkCog_bubbleIdx = jkCog_bubbleIdx + 1;
+    for (jkCog_bubbleIdx++; jkCog_bubbleIdx < 64; jkCog_bubbleIdx++) {
+        if (jkPlayer_aBubbleInfo[jkCog_bubbleIdx].pThing) break;
     }
     if (jkCog_bubbleIdx < 0x40) {
         sithCogExec_PushInt(ctx,(jkPlayer_aBubbleInfo[jkCog_bubbleIdx].pThing)->idx);
@@ -1073,7 +1072,7 @@ void jkCog_GetBubbleRadius(sithCog *ctx)
             return;
         }
     }
-    sithCogExec_PushInt(ctx,-1);
+    sithCogExec_PushFlex(ctx, 0.0);
 }
 
 // MOTS added

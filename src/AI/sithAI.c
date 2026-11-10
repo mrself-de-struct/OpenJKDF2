@@ -175,7 +175,7 @@ void sithAI_Shutdown()
 
     // This is also in a different part
     // MoTS Added
-    SithThing* sithAI_pDistractor = NULL;
+    sithAI_pDistractor = NULL;
 
     sithAI_FLOAT_005a79d8 = 1.0;
 }
@@ -1680,7 +1680,9 @@ void sithAI_SetDistractor(SithThing *pDistractor)
     sithAI_pDistractor = pDistractor;
     if (pDistractor) 
     {
-        for (int i = 0; i < SITHAI_MAX_ACTORS; i++) {
+        // As JKM.EXE: this loop steps two actors at a time, so only every other one
+        // turns to the new distractor
+        for (int i = 0; i < SITHAI_MAX_ACTORS; i += 2) {
             if (sithAI_actors[i].pDistractor == pPlayer) {
                 sithAI_actors[i].pDistractor = pDistractor;
             }

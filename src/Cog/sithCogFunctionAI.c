@@ -651,10 +651,12 @@ void sithCogFunctionAI_AIRemoveAlignmentPriority(sithCog *pCog)
         for (int i = 0; i < 10; i++) {
             sithAI_aAlignments[i].bValid = 0;
         }
+        sithAI_AddAlignmentPriority(1.0);
         return;
     }
 
-    if ((-1 < iVar1) && (iVar1 < 11)) 
+    // Altered: JKM.EXE also takes 10, one past the table
+    if ((-1 < iVar1) && (iVar1 < 10)) 
     {
         cog_flex_t tmp = 1.0;
         iVar4 = -1000;

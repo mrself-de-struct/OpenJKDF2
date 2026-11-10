@@ -37,7 +37,7 @@ static SithThing* sithCogExec_forceJumpPlayer = NULL;
 int32_t sithCogExec_009d39b0 = 0;
 sithCog* sithCogExec_pIdkMotsCtx = NULL;
 sithCog* sithCog_pActionCog = NULL;
-int32_t sithCog_actionCogIdk = 0;
+int32_t sithCog_actionCogIdk = -1; // JKM.EXE starts it at -1
 
 void sithCogExec_Execute(sithCog *pCog)
 {
@@ -488,7 +488,7 @@ int32_t sithCogExec_PopInt(sithCog *pCog)
     {
         if (tmp.dataAsPtrs[0]) {
             cog_flex_t* tmpvec = (cog_flex_t*)tmp.dataAsPtrs[0];
-            int tmpi = (int)(*tmpvec);
+            int tmpi = -1; // a vector isn't an int
             SITH_FREE((void*)tmpvec);
             return tmpi;
         }
@@ -577,7 +577,7 @@ sithCog* sithCogExec_PopCog(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -629,7 +629,7 @@ SithThing* sithCogExec_PopThing(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -680,7 +680,7 @@ SithThing* sithCogExec_PopTemplate(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -729,7 +729,7 @@ sithSound* sithCogExec_PopSound(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -784,7 +784,7 @@ SithSector* sithCogExec_PopSector(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -833,7 +833,7 @@ SithSurface* sithCogExec_PopSurface(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -883,7 +883,7 @@ rdMaterial* sithCogExec_PopMaterial(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -938,7 +938,7 @@ rdModel3* sithCogExec_PopModel3(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -993,7 +993,7 @@ rdKeyframe* sithCogExec_PopKeyframe(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -1046,7 +1046,7 @@ SithAIClass* sithCogExec_PopAIClass(sithCog *pCog)
     else if ( tmp.type == SITHCOG_VALUE_VECTOR )
     {
         if (tmp.dataAsPtrs[0]) {
-            idx = (int)(((cog_flex_t*)tmp.dataAsPtrs[0])[0]);
+            idx = -1; // a vector isn't an index
             SITH_FREE((void*)tmp.dataAsPtrs[0]);
         }
         else {
@@ -1249,13 +1249,6 @@ void sithCogExec_PushCallstack(sithCog *pCog)
         pCog->callstack[pCog->callDepth].script_running = pCog->script_running;
         pCog->callstack[pCog->callDepth].waketimeMs = pCog->msecTimerTimeout;
         pCog->callstack[pCog->callDepth++].trigId = pCog->trigId;
-
-        // MOTS added: wakeup
-        if (((sithCogExec_009d39b0 != 0) && (pCog->script_running == 2)) && (pCog == sithCogExec_pIdkMotsCtx)) {
-            pCog->script_running = 1;
-            sithCogExec_009d39b0 = 0;
-            sithCogExec_pIdkMotsCtx = NULL;
-        }
     }
 }
 
@@ -1268,6 +1261,13 @@ void sithCogExec_PopCallstack(sithCog *pCog)
         pCog->execPos = pCog->callstack[pCog->callDepth].pc;
         pCog->msecTimerTimeout = pCog->callstack[pCog->callDepth].waketimeMs;
         pCog->trigId = pCog->callstack[pCog->callDepth].trigId;
+
+        // MOTS added: wakeup() from a handler resumes the sleeping cog when the handler returns
+        if (((sithCogExec_009d39b0 != 0) && (pCog->script_running == 2)) && (pCog == sithCogExec_pIdkMotsCtx)) {
+            pCog->script_running = 1;
+            sithCogExec_009d39b0 = 0;
+            sithCogExec_pIdkMotsCtx = NULL;
+        }
     }
     else
     {

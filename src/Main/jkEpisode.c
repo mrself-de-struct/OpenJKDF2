@@ -719,7 +719,7 @@ void jkEpisode_CreateBubble(SithThing *pThing,flex_t radius,uint32_t type)
     if (iVar3 != jkEpisode_numBubbles) {
         pjVar2 = jkPlayer_aBubbleInfo + iVar3;
         do {
-            if (&jkPlayer_aBubbleInfo[64] < pjVar2) {
+            if (pjVar2 >= &jkPlayer_aBubbleInfo[64]) {
                 iVar3 = iVar3 - 64;
                 pjVar2 = pjVar2 - 64;
             }

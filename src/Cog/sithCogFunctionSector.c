@@ -357,7 +357,7 @@ void sithCogFunctionSector_ChangeAllSectorsLight(sithCog *pCog)
     cog_flex_t val = sithCogExec_PopFlex(pCog);
     for (int i = 0; i < sithWorld_g_pCurrentWorld->numSectors; i++) {
         SithSector* pSector = &sithWorld_g_pCurrentWorld->aSectors[i];
-        pSector->extraLight = val;
+        pSector->extraLight += val;
     }
 }
 
@@ -398,7 +398,7 @@ void sithCogFunctionSector_GetSectorAmbientLight(sithCog *pCog)
     SithSector *pSector;
     
     pSector = sithCogExec_PopSector(pCog);
-    if (pSector) {
+    if (!pSector) {
         sithCogExec_PushFlex(pCog,0.0);
         return;
     }

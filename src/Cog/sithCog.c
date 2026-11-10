@@ -402,7 +402,7 @@ void sithCog_Shutdown()
     sithCogExec_009d39b0 = 0;
     sithCogExec_pIdkMotsCtx = NULL;
     sithCog_pActionCog = NULL;
-    sithCog_actionCogIdk = 0;
+    sithCog_actionCogIdk = -1;
 }
 
 int32_t sithCog_Open()
