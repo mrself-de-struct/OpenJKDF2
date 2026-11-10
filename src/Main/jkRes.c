@@ -249,6 +249,26 @@ int jkRes_ReadKeyRawEarly()
     return jkRes_ReadKeyFromFile("resource/jk_.cd");
 }
 
+// Added: whether the game folder holds MotS's resources and not JK's (a folder copied
+// without its jk_.cd, e.g. a dedicated server's), before the file system is up.
+int jkRes_HasMotsResourcesEarly()
+{
+    stdFile_t fd;
+
+    if (!pLowLevelHS || !pLowLevelHS->fileOpen) {
+        pLowLevelHS = (HostServices *)&lowLevelHS;
+        stdInitServices(&lowLevelHS);
+    }
+    if ((fd = pLowLevelHS->fileOpen("resource/res2.gob", "rb"))) {
+        pLowLevelHS->fileClose(fd);
+        return 0;
+    }
+    if (!(fd = pLowLevelHS->fileOpen("resource/jkmres.goo", "rb")))
+        return 0;
+    pLowLevelHS->fileClose(fd);
+    return 1;
+}
+
 int jkRes_ReadKey()
 {
     int keyval = jkRes_ReadKeyRaw();

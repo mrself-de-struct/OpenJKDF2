@@ -41,6 +41,7 @@ int jkRes_FileExists(const char *fpath, char *a2, int len);
 int jkRes_ReadKeyFromFile(const char* fpath); // Added
 int jkRes_ReadKeyRaw(); // Added
 int jkRes_ReadKeyRawEarly(); // Added
+int jkRes_HasMotsResourcesEarly(); // Added
 int jkRes_ReadKey();
 int jkRes_LoadNew(jkResGobDirectory *resGob, char *name, int a3);
 int jkRes_NewGob(jkResGobDirectory *gobFullpath, char *gobFolder, char *gobFname);

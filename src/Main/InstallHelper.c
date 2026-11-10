@@ -1316,7 +1316,16 @@ void InstallHelper_SetCwd()
 
     // If we can tell that we're loading MoTS assets, enable Main_bMotsCompat
     int keyval = jkRes_ReadKeyRawEarly();
-    if (JKRES_IS_MOTS_MAGIC(keyval)) {
+    // Added: also by its files, when there's no MotS key (no jk_.cd, or JK's)
+    int bMotsFiles = !JKRES_IS_MOTS_MAGIC(keyval) && jkRes_HasMotsResourcesEarly();
+    if (bMotsFiles && keyval) {
+        stdPlatform_Printf("OpenJKDF2: resource/jk_.cd is Jedi Knight's, but this folder holds Mysteries of the Sith "
+                           "(resource/JKMRES.GOO, no Res2.gob): put MotS's own jk_.cd in resource/\n");
+    }
+    else if (bMotsFiles) {
+        stdPlatform_Printf("OpenJKDF2: resource/JKMRES.GOO and no Res2.gob here: running Mysteries of the Sith\n");
+    }
+    if (JKRES_IS_MOTS_MAGIC(keyval) || bMotsFiles) {
         Main_bMotsCompat = 1;
         if (openjkdf2_bIsFirstLaunch) {
             openjkdf2_bOrigWasDF2 = 0;
