@@ -28,6 +28,8 @@
 
 static int Windows_bInitted;
 static uint32_t Windows_DplayGuid[4] = {0x0BF0613C0, 0x11D0DE79, 0x0A000C999, 0x4BAD7624};
+// MOTS added: JKM.EXE's DirectPlay application GUID {A4FF3960-3B4F-11D1-96CB-444553540000}
+static uint32_t Windows_DplayGuidMots[4] = {0xA4FF3960, 0x11D13B4F, 0x4544CB96, 0x00005453};
 static char Windows_cpu_info[0x4c] = { 0 };
 static char Windows_cdpath_default[4] = {0}; // ???
 
@@ -42,7 +44,7 @@ void Windows_Startup()
     stdPlatform_Printf("OpenJKDF2: %s\n", __func__);
 
     Windows_bInitted = 1;
-    WinIdk_SetDplayGuid(Windows_DplayGuid);
+    WinIdk_SetDplayGuid(Main_bMotsCompat ? Windows_DplayGuidMots : Windows_DplayGuid); // MOTS altered
     WinIdk_detect_cpu(Windows_cpu_info);
 
 #if !defined(SDL2_RENDER) && defined(WIN32)
