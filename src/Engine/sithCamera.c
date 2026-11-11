@@ -14,6 +14,9 @@
 #include "General/stdMath.h"
 #include "Dw/dwCamera.h"
 #include "jk.h"
+#ifdef QOL_IMPROVEMENTS
+#include "Devices/sithControl.h"
+#endif
 
 static rdVector3 sithCamera_trans = {0.0, 0.3, 0.0};
 static rdVector3 sithCamera_trans2 = {0.0, 0.2, 0.0};
@@ -131,8 +134,76 @@ void sithCamera_Close()
     }
 }
 
+#ifdef QOL_IMPROVEMENTS
+// Added: console "freecam": a camera of its own, flown with the movement keys and mouse
+// while the player stays where they are (single player). Walls don't stop it.
+int sithCamera_bFreeCam = 0;
+static rdVector3 sithCamera_freeCamPos;
+static rdVector3 sithCamera_freeCamPYR;
+static SithSector* sithCamera_pFreeCamSector = NULL;
+
+int sithCamera_SetFreeCam(int bOn)
+{
+    SithCamera* pCam = sithCamera_g_pCurCamera;
+    if ( bOn && (!pCam || !pCam->sector) )
+        return 0;
+    if ( bOn && !sithCamera_bFreeCam )
+    {
+        sithCamera_freeCamPos = pCam->orient.scale;
+        rdMatrix_ExtractAngles34(&pCam->orient, &sithCamera_freeCamPYR);
+        sithCamera_freeCamPYR.z = 0.0;
+        sithCamera_pFreeCamSector = pCam->sector;
+    }
+    sithCamera_bFreeCam = bOn;
+    return 1;
+}
+
+// Called instead of the player's controls while the free camera is on.
+void sithCamera_FreeCamControl(flex_t deltaSecs)
+{
+    rdMatrix34 orient;
+    rdVector3 move;
+    SithSector* pSector;
+    flex_t speed = SITHCAMERA_FREECAM_SPEED;
+    flex_t vert = 0.0;
+    flex_t fwd, side;
+
+    if ( sithControl_GetKey(INPUT_FUNC_FAST, 0) )
+        speed *= 3.0;
+    if ( sithControl_GetKey(INPUT_FUNC_SLOW, 0) )
+        speed *= 0.25;
+    if ( sithControl_GetKey(INPUT_FUNC_JUMP, 0) )
+        vert += 1.0;
+    if ( sithControl_GetKey(INPUT_FUNC_DUCK, 0) )
+        vert -= 1.0;
+
+    // Mouse axes are amounts for this frame, keys rates (as the player's turning and looking)
+    sithCamera_freeCamPYR.y += sithControl_GetAxis(INPUT_FUNC_TURN) + sithControl_GetKeyAsAxis(INPUT_FUNC_TURN) * 120.0 * deltaSecs;
+    sithCamera_freeCamPYR.x += sithControl_GetAxis(INPUT_FUNC_PITCH) + sithControl_GetKeyAsAxis(INPUT_FUNC_PITCH) * 90.0 * deltaSecs;
+    sithCamera_freeCamPYR.x = stdMath_Clamp(sithCamera_freeCamPYR.x, -89.0, 89.0);
+    sithCamera_freeCamPYR.y = stdMath_NormalizeAngle(sithCamera_freeCamPYR.y);
+
+    rdMatrix_BuildRotate34(&orient, &sithCamera_freeCamPYR);
+    fwd = sithControl_GetKeyAsAxisNormalized(INPUT_FUNC_FORWARD);
+    side = sithControl_GetKeyAsAxisNormalized(INPUT_FUNC_SLIDE);
+    move.x = orient.lvec.x * fwd + orient.rvec.x * side;
+    move.y = orient.lvec.y * fwd + orient.rvec.y * side;
+    move.z = orient.lvec.z * fwd + orient.rvec.z * side + vert;
+    rdVector_Scale3Acc(&move, speed * deltaSecs);
+    rdVector_Add3Acc(&sithCamera_freeCamPos, &move);
+
+    // Outside every sector (in a wall, outside the level) it keeps the last one
+    pSector = sithSector_FindSectorAtPos(sithWorld_g_pCurrentWorld, &sithCamera_freeCamPos);
+    if ( pSector )
+        sithCamera_pFreeCamSector = pSector;
+}
+#endif // QOL_IMPROVEMENTS
+
 void sithCamera_ResetAllCameras()
 {
+#ifdef QOL_IMPROVEMENTS
+    sithCamera_bFreeCam = 0; // Added: a new level starts with the normal camera
+#endif
     SithThing *v0; // eax
     rdVector3 rot; // [esp+Ch] [ebp-Ch] BYREF
 
@@ -243,6 +314,17 @@ void sithCamera_Update(SithCamera *pCamera)
     rdMatrix34 out; // [esp+5Ch] [ebp-30h] BYREF
 
     SITH_ASSERTREL(pCamera != NULL); // Added: J3D assert
+
+#ifdef QOL_IMPROVEMENTS
+    // Added: the free camera
+    if ( sithCamera_bFreeCam && pCamera == sithCamera_g_pCurCamera && sithCamera_pFreeCamSector )
+    {
+        rdMatrix_BuildRotate34(&pCamera->orient, &sithCamera_freeCamPYR);
+        pCamera->orient.scale = sithCamera_freeCamPos;
+        pCamera->sector = sithCamera_pFreeCamSector;
+        return;
+    }
+#endif
 
     SithThing* focusThing = pCamera->pPrimaryFocusThing;
     flex_t v77 = sithCamera_g_cameraAngleDelta * sithTime_g_frameTimeFlex;

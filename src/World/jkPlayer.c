@@ -972,7 +972,11 @@ void jkPlayer_DrawPov()
         rdPuppet_UpdateTracks(playerThings[playerThingIdx].povModel.puppet, sithTime_g_frameTimeFlex);
     }
 
-    if ( !(sithCamera_g_pCurCamera->type & 0xFC) && sithCamera_g_pCurCamera->pPrimaryFocusThing == sithWorld_g_pCurrentWorld->pCameraFocusThing )
+    if ( !(sithCamera_g_pCurCamera->type & 0xFC) && sithCamera_g_pCurCamera->pPrimaryFocusThing == sithWorld_g_pCurrentWorld->pCameraFocusThing
+#ifdef QOL_IMPROVEMENTS
+      && !sithCamera_bFreeCam // Added: no weapon in front of the free camera
+#endif
+       )
     {
         SithThing* player = playerThings[playerThingIdx].actorThing;
 

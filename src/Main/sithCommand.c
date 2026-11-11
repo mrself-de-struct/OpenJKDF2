@@ -54,6 +54,34 @@ sithCommandBind* sithCommand_pBinds;
 static char sithCommand_aIdk[4]; // TODO symbols?
 
 #ifdef QOL_IMPROVEMENTS
+// Added: "freecam [on|off]": a camera of its own, flown with the movement keys and mouse
+// (jump/crouch up and down, run faster, walk slower) while the player stays put. Single player.
+int sithCommand_CmdFreeCam(stdDebugConsoleCmd *pCmd, const char *pArgStr)
+{
+    int bOn = !sithCamera_bFreeCam;
+    if ( pArgStr && (!__strcmpi(pArgStr, "on") || !strcmp(pArgStr, "1")) )
+        bOn = 1;
+    else if ( pArgStr && (!__strcmpi(pArgStr, "off") || !strcmp(pArgStr, "0")) )
+        bOn = 0;
+    if ( bOn && sithNet_isMulti )
+    {
+        sithConsole_PrintString("freecam is for single player.");
+        return 1;
+    }
+    if ( bOn && (!sithWorld_g_pCurrentWorld || !sithPlayer_g_pLocalPlayerThing) )
+    {
+        sithConsole_PrintString("freecam needs a level.");
+        return 1;
+    }
+    if ( !sithCamera_SetFreeCam(bOn) )
+    {
+        sithConsole_PrintString("No camera to free.");
+        return 1;
+    }
+    sithConsole_PrintString(bOn ? "Free camera on (freecam again to go back)." : "Free camera off.");
+    return 1;
+}
+
 int sithCommand_CmdQuit(stdDebugConsoleCmd *pCmd, const char *pArgStr)
 {
     // Altered: as closing the window does (settings saved; a multiplayer game is left
@@ -683,6 +711,7 @@ void sithCommand_Startup()
     }
 
 #ifdef QOL_IMPROVEMENTS
+    sithConsole_RegisterCommand(sithCommand_CmdFreeCam, "freecam", 0); // Added
     sithConsole_RegisterCommand(sithCommand_CmdQuit, "quit", 0);
     sithConsole_RegisterCommand(sithCommand_CmdQuit, "q", 0);
     sithConsole_RegisterCommand(sithCommand_CmdThingNpc, "npc", 0);

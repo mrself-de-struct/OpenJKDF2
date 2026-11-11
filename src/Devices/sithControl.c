@@ -1091,6 +1091,23 @@ int sithControl_HandlePlayer(SithThing *player, flex_t deltaSecs)
         goto debug_controls;
     }
 
+#ifdef QOL_IMPROVEMENTS
+    // Added: console "freecam": the controls fly the camera; the player stands still
+    if (sithCamera_bFreeCam) {
+        if (sithNet_isMulti) {
+            sithCamera_SetFreeCam(0);
+        }
+        else {
+            // Not through debug_controls: its keys are the editor's (jump damages the player,
+            // activate turns the camera into the orbit camera)
+            rdVector_Zero3(&player->physicsParams.acceleration);
+            rdVector_Zero3(&player->physicsParams.angularVelocity);
+            sithCamera_FreeCamControl(deltaSecs);
+            return 0;
+        }
+    }
+#endif
+
     if ( (g_debugmodeFlags & DEBUGFLAG_IN_EDITOR) == 0 || !sithControl_GetKey(INPUT_FUNC_DEBUG, 0) )
     {
         if (player->flags & SITH_TF_DEAD)

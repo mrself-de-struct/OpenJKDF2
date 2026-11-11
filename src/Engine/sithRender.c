@@ -38,6 +38,13 @@
 #include <nds.h>
 #endif
 
+// Added: with the free camera ("freecam") the player is drawn like any other thing
+#ifdef QOL_IMPROVEMENTS
+#define SITHRENDER_FREECAM (sithCamera_bFreeCam)
+#else
+#define SITHRENDER_FREECAM (0)
+#endif
+
 #ifdef QOL_IMPROVEMENTS
 #if 0
 static rdThing* lightDebugThing = NULL;
@@ -2548,7 +2555,7 @@ LABEL_150:
             // camera (type 0x100) also draws its focus thing.
             // 0x100 is only ever set under Main_bDwCompat, so this is
             // a no-op for JK/MOTS/retro cameras.
-            if (!((sithCamera_g_pCurCamera->type & 0x1FC) != 0 || i != sithCamera_g_pCurCamera->pPrimaryFocusThing)) {
+            if (!((sithCamera_g_pCurCamera->type & 0x1FC) != 0 || i != sithCamera_g_pCurCamera->pPrimaryFocusThing || SITHRENDER_FREECAM)) {
                 continue;
             }
 
@@ -2829,7 +2836,7 @@ void sithRender_RenderThings()
               && (thingIter->flags & SITH_TF_LEVELGEO) == 0
               // Added: 0x1FC (was 0xFC) — draw the focus thing for the DW
               // third-person follow camera (type 0x100) too; see the note above.
-              && ((sithCamera_g_pCurCamera->type & 0x1FC) != 0 || thingIter != sithCamera_g_pCurCamera->pPrimaryFocusThing) )
+              && ((sithCamera_g_pCurCamera->type & 0x1FC) != 0 || thingIter != sithCamera_g_pCurCamera->pPrimaryFocusThing || SITHRENDER_FREECAM) )
             {
                 rdMatrix_TransformPoint34(&thingIter->transformedPos, &thingIter->position, &rdCamera_g_pCurCamera->orient);
                 

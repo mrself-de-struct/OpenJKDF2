@@ -52,6 +52,11 @@ SithThing* sithCamera_GetSecondaryFocus(SithCamera *pCamera);
 int sithCamera_SetCameraStateFlags(int flags);
 int sithCamera_GetCameraStateFlags();
 void sithCamera_CycleCamera();
+#ifdef QOL_IMPROVEMENTS
+extern int sithCamera_bFreeCam;           // Added: console "freecam"
+int sithCamera_SetFreeCam(int bOn);       // Added
+void sithCamera_FreeCamControl(flex_t deltaSecs); // Added
+#endif
 MATH_FUNC void sithCamera_SetZoom(SithCamera *pCamera, flex_t zoomScale, flex_t zoom_2); // MOTS added
 MATH_FUNC void sithCamera_UpdateZoom(SithCamera *pCamera);
 

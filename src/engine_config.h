@@ -240,6 +240,7 @@
 #endif
 
 #define SITHCAMERA_FOV (90.0)
+#define SITHCAMERA_FREECAM_SPEED (2.0) // Added: console "freecam", world units a second (x3 running)
 #define SITHCAMERA_ASPECT (1.0)
 #define SITHCAMERA_ATTENUATION_MIN (0.4)
 #define SITHCAMERA_ATTENUATION_MAX (0.8)
