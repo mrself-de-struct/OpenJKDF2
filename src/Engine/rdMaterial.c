@@ -381,6 +381,20 @@ LABEL_21:
           format.height,
           (*texture_struct)->format.rowSize);
         stdDisplay_VBufferUnlock(*texture_struct);
+        if (!bPixelsRead && mipmap_num > 0)
+        {
+            // Altered: a MAT whose header promises more mipmaps than the file holds (some
+            // early 16-bit MAT tools wrote these) keeps the ones it has. The file ends here,
+            // so cels after this one aren't there either: the material keeps those it read.
+            stdPlatform_Printf("OpenJKDF2: Material `%s` texture %d has %d of %d mipmaps; using those\n",
+                               mat_fpath, tex_numa, mipmap_num, texture->num_mipmaps);
+            stdDisplay_VBufferFree(*texture_struct);
+            *texture_struct = NULL;
+            texture->num_mipmaps = mipmap_num;
+            material->num_textures = tex_numa + 1;
+            mat_file_ = mat_file__;
+            goto LABEL_22;
+        }
         if (!bPixelsRead)
         {
             stdPlatform_Printf("OpenJKDF2: Material `%s` texture %d mip %d is short or doesn't fit!\n", mat_fpath, tex_numa, mipmap_num);
@@ -463,7 +477,8 @@ LABEL_22:
       do
       {
         if ( (*v24)->header.texture_type & 8 )
-          (*v24)->texture_ptr = &material->textures[*v23];
+          // Altered: a cel past the end of a short file (above) shows the last one there
+          (*v24)->texture_ptr = &material->textures[(uint32_t)*v23 < material->num_textures ? *v23 : material->num_textures - 1];
         else
           (*v24)->texture_ptr = NULL; // Added
         ++v22;
