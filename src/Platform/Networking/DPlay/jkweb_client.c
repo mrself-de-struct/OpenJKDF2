@@ -52,9 +52,16 @@
 #include <curl/curl.h>
 #else
 #include "curl/curl.h"
+#endif
+// Altered: the CA bundle is handed to curl wherever the game bundles its own curl + mbedTLS
+// (Windows, macOS); only Linux uses the system libcurl with the system roots. The guard was
+// `#ifndef LINUX`, but macOS builds define LINUX too, so the Mac gave mbedTLS no roots at all
+// and every wss:// failed with BADCERT_NOT_TRUSTED (2026-11-13; cmake defines
+// PLATFORM_NO_CACERT_BLOB for Linux only, as stdHttp.c uses it).
+#ifndef PLATFORM_NO_CACERT_BLOB
 // Platform/Common/stdEmbeddedRes.h (not included: it pulls in the engine's
 // Windows type stand-ins, which clash with <winsock2.h>)
-char* stdEmbeddedRes_Load(const char* filepath, size_t* pOutSz);
+char* stdEmbeddedRes_LoadCaBundle(void);
 #endif
 
 #define DPS_BACKEND_PREFIX jkweb
@@ -629,7 +636,10 @@ static int jkw_ConnectOnce(int bareTls)
     // agrees to HTTP/2 when offered, and curl 8.23 offers it on a CONNECT_ONLY connection:
     // our bytes then went into curl's HTTP/2 handling and crashed in it (2026-10-27).
     curl_easy_setopt(W.curl, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_1_1);
-#ifndef LINUX
+    // With OPENJKDF2_DPLAY_LOG, curl says why a connection fails (e.g. which certificate check)
+    if (W.log)
+        curl_easy_setopt(W.curl, CURLOPT_VERBOSE, 1L);
+#ifndef PLATFORM_NO_CACERT_BLOB
     if (W.caBlob)
     {
         struct curl_blob blob = { W.caBlob, strlen((char*)W.caBlob), CURL_BLOB_COPY };
@@ -996,8 +1006,8 @@ long dps_Startup(const uint8_t appGuid[16])
     W.log = lg && *lg && *lg != '0';
     W.startMs = jkw_NowMs();
     W.hostedRoom = -1;
-#ifndef LINUX
-    W.caBlob = stdEmbeddedRes_Load("ssl/cacert.pem", NULL);
+#ifndef PLATFORM_NO_CACERT_BLOB
+    W.caBlob = stdEmbeddedRes_LoadCaBundle(); // built-in bundle; a cacert.pem on disk only adds roots
 #endif
     W.started = 1;
     return JKW_HR_OK;
@@ -1011,7 +1021,7 @@ void dps_Shutdown(void)
     free(W.rx);
     free(W.msg);
     free(W.evLast);
-#ifndef LINUX
+#ifndef PLATFORM_NO_CACERT_BLOB
     free(W.caBlob);
 #endif
     W.rx = W.msg = NULL;

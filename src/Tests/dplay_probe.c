@@ -20,7 +20,7 @@
 //   PROBE_RELAY=server[:port] ...      use Imperial Network Protocol (relay) instead of DirectPlay
 //   PROBE_DIRECT=1 ...                 with the relay: ask for direct links (as net_directLinks 1)
 //   PROBE_MASTERS=host[,host...] ...   with the relay: list the master servers' games too (as net_masterServers)
-//   PROBE_WEB=ws(s)://host/relay ...   use the jkdf2mp web lobby (link with -lcurl -DPLATFORM_CURL -DLINUX)
+//   PROBE_WEB=ws(s)://host/relay ...   use the jkdf2mp web lobby (link with -lcurl -DPLATFORM_CURL -DLINUX -DPLATFORM_NO_CACERT_BLOB)
 //   PROBE_IPX=1 ...                    use DirectPlay IPX (IPXWrapper's IPX over UDP 54792)
 //   PROBE_DOWNLOAD=<episode> join ...  with the relay: download the host's map <episode> (without
 //                                      .gob) into ./episode as the game would, print the time and

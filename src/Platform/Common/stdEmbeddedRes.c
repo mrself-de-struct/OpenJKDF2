@@ -257,3 +257,70 @@ skip_fopen:
 
     return file_contents;
 }
+// Added: appends a file's contents (if it can be read) to *pBuf (size *pLen).
+static void stdEmbeddedRes_AppendFile(char** pBuf, size_t* pLen, const char* pPath)
+{
+    FILE* f = fopen(pPath, "rb");
+    long n;
+    char* pNew;
+    if (!f)
+        return;
+    fseek(f, 0, SEEK_END);
+    n = ftell(f);
+    rewind(f);
+    if (n > 0 && (pNew = (char*)realloc(*pBuf, *pLen + (size_t)n + 2)))
+    {
+        *pBuf = pNew;
+        pNew[(*pLen)++] = '\n';
+        *pLen += fread(pNew + *pLen, 1, (size_t)n, f);
+        pNew[*pLen] = 0;
+    }
+    fclose(f);
+}
+
+// Added: the CA certificates for HTTPS/WSS (stdHttp, the web lobby): always the bundle
+// built into the game, plus a resource/ssl/cacert.pem in the game folder and, on macOS,
+// the system's /etc/ssl/cert.pem. A file on disk only adds roots: an old cacert.pem left
+// by an earlier version used to replace the built-in one and lacked newer roots
+// (e.g. GTS Root R4: "SSL peer certificate ... was not OK" for jediknight.zone on a Mac).
+char* stdEmbeddedRes_LoadCaBundle(void)
+{
+    char* pBuf = NULL;
+    size_t len = 0;
+    char diskPath[256];
+
+    for (size_t i = 0; i < embeddedResource_aFiles_num; i++)
+    {
+        if (!strcmp(embeddedResource_aFiles[i].fpath, "ssl/cacert.pem")) {
+            pBuf = (char*)malloc(embeddedResource_aFiles[i].data_len + 1);
+            if (!pBuf)
+                return NULL;
+            memcpy(pBuf, embeddedResource_aFiles[i].data, embeddedResource_aFiles[i].data_len);
+            len = embeddedResource_aFiles[i].data_len;
+            pBuf[len] = 0;
+            break;
+        }
+    }
+    if (!pBuf && !(pBuf = (char*)calloc(1, 1)))
+        return NULL;
+
+    strncpy(diskPath, "resource/ssl/cacert.pem", sizeof(diskPath) - 1);
+    diskPath[sizeof(diskPath) - 1] = 0;
+#ifdef FS_POSIX
+    {
+        char* r = (char*)malloc(strlen(diskPath) + 16);
+        if (r && casepath(diskPath, r))
+            strncpy(diskPath, r, sizeof(diskPath) - 1);
+        free(r);
+    }
+#endif
+#ifdef WIN32
+    for (size_t i = 0; diskPath[i]; i++)
+        if (diskPath[i] == '/') diskPath[i] = '\\';
+#endif
+    stdEmbeddedRes_AppendFile(&pBuf, &len, diskPath);
+#if defined(MACOS)
+    stdEmbeddedRes_AppendFile(&pBuf, &len, "/etc/ssl/cert.pem");
+#endif
+    return pBuf;
+}
